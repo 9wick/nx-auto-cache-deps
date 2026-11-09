@@ -58,7 +58,7 @@ nx add nx-auto-cache-deps
 
 この target は、`nx add` が登録する `wrap` なしの `"nx-auto-cache-deps"` が扱う。
 
-この target には `inputs` を書かない。書くとその記述が優先され、依存一覧によるハッシュが使われない。
+`inputs` を書かなければ、本プラグインが依存一覧のハッシュを `inputs` に設定する。`inputs` を書く場合は、後述の named input を含める。
 
 ## 普段どおり実行する
 
@@ -84,10 +84,23 @@ worktree A で実行した後、同じ入力の worktree B で実行すると、
 
 ## ファイル以外の入力
 
+本プラグインは、対象 target ごとに依存一覧のハッシュを表す named input `autoCacheDeps-<target 名>` をプロジェクトに追加する。
+
 推論プラグインの target では、元の `inputs` にある環境変数・外部依存・runtime input の指定がそのまま残る。
 
-`project.json` で executor を明示する target では、`inputs` を書くとその記述が本プラグインの指定より優先される（Nx の仕様）。
-そのため現時点では、明示 executor の target にファイル以外の入力を加える方法を提供していない。
+`project.json` で executor を明示する target で環境変数などを加えるときは、`inputs` に named input と一緒に書く。
+
+```json
+{
+  "build": {
+    "executor": "nx-auto-cache-deps:run",
+    "original_executor": "@nx/js:tsc",
+    "inputs": ["autoCacheDeps-build", { "env": "NODE_ENV" }]
+  }
+}
+```
+
+`inputs` に `autoCacheDeps-<target 名>` を含めないと、依存一覧のハッシュは使われない。
 
 ## 解除する
 

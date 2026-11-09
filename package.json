@@ -1,6 +1,6 @@
 {
   "name": "nx-auto-cache-deps",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Nx plugin that derives cache inputs from the files a task actually accessed",
   "license": "MIT",
   "type": "module",

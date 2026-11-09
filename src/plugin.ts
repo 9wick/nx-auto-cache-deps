@@ -41,12 +41,20 @@ const fingerprintCommand = (workspaceRoot: string, key: string): Input => {
   return { runtime: `node ${JSON.stringify(script)} ${JSON.stringify(key)}` };
 };
 
+/** 依存一覧のハッシュを表す named input の名前。利用者は target の inputs からこの名前で参照できる。 */
+export const namedInputName = (targetName: string): string => `autoCacheDeps-${targetName}`;
+
+const dependencyNamedInputs = (workspaceRoot: string, projectRoot: string, targetNames: readonly string[]) =>
+  Object.fromEntries(
+    targetNames.map((name) => [namedInputName(name), [fingerprintCommand(workspaceRoot, taskKey(projectRoot, name))]]),
+  );
+
 const isFileInput = (input: Input): boolean =>
   typeof input === 'string' || 'fileset' in input || 'input' in input || 'dependentTasksOutputFiles' in input;
 
 export const wrapTarget = (
   target: TargetConfiguration,
-  fingerprintInput: Input,
+  targetName: string,
 ): TargetConfiguration & { original_executor: string } => {
   const { executor, command, inputs, options, ...rest } = target;
   return {
@@ -55,7 +63,7 @@ export const wrapTarget = (
     original_executor: executor ?? 'nx:run-commands',
     options: command === undefined ? options : { command, ...options },
     // ファイル入力は依存一覧で置き換え、環境変数・外部依存・runtime input は残す
-    inputs: [fingerprintInput, ...(inputs ?? []).filter((input) => !isFileInput(input))],
+    inputs: [namedInputName(targetName), ...(inputs ?? []).filter((input) => !isFileInput(input))],
   };
 };
 
@@ -66,18 +74,20 @@ const wrapResult = (
 ): CreateNodesResult => ({
   ...result,
   projects: Object.fromEntries(
-    Object.entries(result.projects ?? {}).map(([projectRoot, project]) => [
-      projectRoot,
-      {
-        ...project,
-        targets: Object.fromEntries(
-          Object.entries(project.targets ?? {}).map(([name, target]) => [
-            name,
-            targetNames.has(name) ? wrapTarget(target, fingerprintCommand(workspaceRoot, taskKey(projectRoot, name))) : target,
-          ]),
-        ),
-      },
-    ]),
+    Object.entries(result.projects ?? {}).map(([projectRoot, project]) => {
+      const targets = project.targets ?? {};
+      const selected = Object.keys(targets).filter((name) => targetNames.has(name));
+      return [
+        projectRoot,
+        {
+          ...project,
+          namedInputs: { ...project.namedInputs, ...dependencyNamedInputs(workspaceRoot, projectRoot, selected) },
+          targets: Object.fromEntries(
+            Object.entries(targets).map(([name, target]) => [name, targetNames.has(name) ? wrapTarget(target, name) : target]),
+          ),
+        },
+      ];
+    }),
   ),
 });
 
@@ -105,12 +115,16 @@ const createExplicitNodes = (files: readonly string[], context: CreateNodesConte
     .flatMap((file) => {
       const projectRoot = dirname(file);
       const projectJson = JSON.parse(readFileSync(join(context.workspaceRoot, file), 'utf8')) as ProjectJson;
-      const targets = Object.entries(projectJson.targets ?? {})
+      const selected = Object.entries(projectJson.targets ?? {})
         .filter(([, target]) => target.executor === RUN_EXECUTOR)
-        .map(([name]) => [name, { inputs: [fingerprintCommand(context.workspaceRoot, taskKey(projectRoot, name))] }]);
-      return targets.length === 0
-        ? []
-        : [[file, { projects: { [projectRoot]: { targets: Object.fromEntries(targets) } } }] as const];
+        .map(([name]) => name);
+      if (selected.length === 0) return [];
+      // project.json に inputs を書いた target でも、named input を参照すれば依存一覧のハッシュを使える
+      const project = {
+        namedInputs: dependencyNamedInputs(context.workspaceRoot, projectRoot, selected),
+        targets: Object.fromEntries(selected.map((name) => [name, { inputs: [namedInputName(name)] }])),
+      };
+      return [[file, { projects: { [projectRoot]: project } }] as const];
     });
 
 // 包むプラグインの glob は登録ごとに違うため、全ファイルを受け取り内側で絞り込む

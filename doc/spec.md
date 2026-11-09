@@ -58,7 +58,7 @@ Nx の公開 API だけを使う。
 
 | 層 | 責務 | 使う仕組み |
 | --- | --- | --- |
-| target の組み立て | 対象 target の executor を `nx-auto-cache-deps:run` にし、`inputs` を依存一覧のハッシュに置き換える | プラグインの `createNodes` |
+| target の組み立て | 対象 target の executor を `nx-auto-cache-deps:run` にし、依存一覧のハッシュを named input `autoCacheDeps-<target>` として追加して `inputs` から参照する | プラグインの `createNodes` |
 | ハッシュ | 依存一覧を現在の状態で評価する | runtime input |
 | 実行と追跡 | 元の executor を fspy の監視下で実行し、依存一覧を保存する | executor `nx-auto-cache-deps:run` |
 | 成果物 | 保存・復元 | Nx 標準キャッシュ |

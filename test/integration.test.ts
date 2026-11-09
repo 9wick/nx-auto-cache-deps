@@ -75,6 +75,20 @@ const workspaceFiles = (plugins: unknown[]): Files => ({
     },
   }),
   'libs/b/src/1.txt': 'b\n',
+  'libs/c/project.json': JSON.stringify({
+    name: 'c',
+    targets: {
+      build: {
+        executor: 'nx-auto-cache-deps:run',
+        original_executor: 'nx:run-commands',
+        cache: true,
+        inputs: ['autoCacheDeps-build', { env: 'MODE' }],
+        outputs: ['{workspaceRoot}/dist/c'],
+        options: { command: 'echo c >> "$RUN_LOG" && mkdir -p ../../dist/c && cat src/*.txt > ../../dist/c/out.txt', cwd: 'libs/c' },
+      },
+    },
+  }),
+  'libs/c/src/1.txt': 'c\n',
   'libs/a/src/1.txt': 'one\n',
   'libs/a/README.md': 'unrelated\n',
   'apps/web/project.json': JSON.stringify({ name: 'web' }),
@@ -106,11 +120,11 @@ const createWorkspace = (name: string) => {
 
 const runLog = (workspace: string) => join(sandbox, `${workspace.split('/').pop()}.runs`);
 
-const nx = (workspace: string, args: readonly string[], log = runLog(workspace)) => {
+const nx = (workspace: string, args: readonly string[], log = runLog(workspace), env: Record<string, string> = {}) => {
   const result = spawnSync(join(template, 'node_modules/.bin/nx'), [...args, '--output-style=static'], {
     cwd: workspace,
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, NX_DAEMON: 'false', NX_NO_CLOUD: 'true', NX_TUI: 'false', RUN_LOG: log },
+    env: { ...process.env, HOME: home, NX_DAEMON: 'false', NX_NO_CLOUD: 'true', NX_TUI: 'false', RUN_LOG: log, ...env },
   });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 };
@@ -118,9 +132,9 @@ const nx = (workspace: string, args: readonly string[], log = runLog(workspace))
 const runCount = (log: string) => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0);
 
 /** 実行してコマンドが動いたかを返す。 */
-const build = (workspace: string, target = 'a:build', log = runLog(workspace)): boolean => {
+const build = (workspace: string, target = 'a:build', log = runLog(workspace), env: Record<string, string> = {}): boolean => {
   const before = runCount(log);
-  const result = nx(workspace, ['run', target], log);
+  const result = nx(workspace, ['run', target], log, env);
   assert.equal(result.status, 0, result.output);
   return runCount(log) > before;
 };
@@ -206,6 +220,18 @@ describe('Nx との接続', () => {
     const ws = createWorkspace('explicit');
     build(ws);
     assert.equal(readFileSync(join(ws, 'dist/a/out.txt'), 'utf8'), 'one\n');
+  });
+
+  test('A13: project.json の inputs から依存一覧のハッシュを named input で参照し、ファイル以外の入力と併用する', () => {
+    const ws = createWorkspace('named-input');
+    const log = runLog(ws);
+    const mode = (value: string) => ({ MODE: value });
+    assert.equal(build(ws, 'c:build', log, mode('a')), true);
+    assert.equal(build(ws, 'c:build', log, mode('a')), true);
+    assert.equal(build(ws, 'c:build', log, mode('a')), false, '依存一覧と環境変数が同じなら復元');
+    assert.equal(build(ws, 'c:build', log, mode('b')), true, '宣言した環境変数の変更');
+    writeFileSync(join(ws, 'libs/c/src/2.txt'), 'two\n');
+    assert.equal(build(ws, 'c:build', log, mode('b')), true, '依存の変化');
   });
 
   test('A11: worktree 間で依存一覧と実行結果を共有する', () => {

@@ -18,3 +18,4 @@
 | A10 | `project.json` で `executor` を差し替える → 元の executor が元の `options` で動く |
 | A11 | worktree A で一覧と結果を作る → 同じ入力の worktree B で実行 → コマンドは動かず復元する |
 | A12 | `nx add nx-auto-cache-deps` が実行する `init` → `nx.json` に `wrap` なしの登録が1つだけある状態になる。`wrap` 付きの登録しかなければ追加し、再実行しても重複しない |
+| A13 | `project.json` で executor を差し替えた target の `inputs` に `autoCacheDeps-<target>` と環境変数を書く → 依存一覧と環境変数が同じなら復元し、どちらかが変われば実行する |
