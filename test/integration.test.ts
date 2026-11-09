@@ -62,6 +62,19 @@ const workspaceFiles = (plugins: unknown[]): Files => ({
     },
   }),
   'libs/a/build.mjs': BUILD_SCRIPT,
+  'libs/b/project.json': JSON.stringify({
+    name: 'b',
+    targets: {
+      build: {
+        executor: 'nx-auto-cache-deps:run',
+        original_executor: 'nx:run-commands',
+        cache: true,
+        outputs: ['{workspaceRoot}/dist/b'],
+        options: { command: 'echo b >> "$RUN_LOG" && mkdir -p ../../dist/b && cat src/*.txt > ../../dist/b/out.txt', cwd: 'libs/b' },
+      },
+    },
+  }),
+  'libs/b/src/1.txt': 'b\n',
   'libs/a/src/1.txt': 'one\n',
   'libs/a/README.md': 'unrelated\n',
   'apps/web/project.json': JSON.stringify({ name: 'web' }),
@@ -127,6 +140,16 @@ describe('2段階キャッシュ', () => {
     rmSync(join(ws, 'dist'), { recursive: true });
     assert.equal(build(ws), false, 'A3: 成果物を消しても復元');
     assert.equal(readFileSync(join(ws, 'dist/a/out.txt'), 'utf8'), 'one\n');
+  });
+
+  test('A3: 成果物の親ディレクトリを確認するシェルコマンドでも、成果物を入力にしない', () => {
+    const ws = createWorkspace('outputs');
+    assert.equal(build(ws, 'b:build'), true);
+    assert.equal(build(ws, 'b:build'), true);
+    assert.equal(build(ws, 'b:build'), false, 'mkdir -p が既存の dist を確認しても、3回目で復元');
+    rmSync(join(ws, 'dist'), { recursive: true });
+    assert.equal(build(ws, 'b:build'), false, '成果物と親ディレクトリを消しても復元');
+    assert.equal(readFileSync(join(ws, 'dist/b/out.txt'), 'utf8'), 'b\n');
   });
 
   test('A4-A7: 依存の変化だけを検出する', () => {

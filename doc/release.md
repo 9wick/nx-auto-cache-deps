@@ -24,3 +24,18 @@ npm への認証は Trusted Publishing (OIDC) で行い、provenance は自動�
 
 1. `package.json` の `version` を上げてコミットする。
 2. `v<version>` のタグを push する。タグとバージョンが一致しないか、同梱するバイナリが欠けていれば、公開せずに失敗する。
+
+## サードパーティのライセンス
+
+トレーサーには Rust の crate が静的にリンクされ、macOS 用には fspy が uutils coreutils と oils-for-unix を埋め込む。
+それらのライセンスを `THIRD_PARTY_LICENSES` にまとめ、パッケージに同梱している。
+
+`native/Cargo.toml`・`native/Cargo.lock` や fspy の rev を変えたときは作り直す。
+
+1. Rust crate の部分は、`native/` で cargo-about を実行して生成する（fspy の取得に cargo の nightly 機能が要るため `CARGO_UNSTABLE_BINDEPS=true` を付ける）。
+
+   ```sh
+   cd native && CARGO_UNSTABLE_BINDEPS=true cargo about generate about.hbs
+   ```
+
+2. fspy の `build.rs` が埋め込むツール（現在は uutils coreutils 0.4.0 と oils-for-unix 0.38.0）のバージョンを確かめ、変わっていればライセンス文を差し替える。

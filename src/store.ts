@@ -15,11 +15,13 @@ const isDependencyList = (value: unknown): value is DependencyList =>
   typeof value === 'object' &&
   value !== null &&
   'version' in value &&
-  value.version === 1 &&
+  value.version === 2 &&
   'paths' in value &&
   Array.isArray(value.paths) &&
   'directories' in value &&
-  Array.isArray(value.directories);
+  Array.isArray(value.directories) &&
+  'outputs' in value &&
+  Array.isArray(value.outputs);
 
 export type StoredList =
   | { readonly status: 'found'; readonly list: DependencyList }

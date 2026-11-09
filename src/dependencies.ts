@@ -8,11 +8,15 @@ export type TraceReport =
   | { readonly status: 'complete'; readonly accesses: readonly Access[] }
   | { readonly status: 'incomplete'; readonly reason: string };
 
-/** パスはワークスペースルートからの相対パス。`paths` は読み取りと存在確認、`directories` は列挙。 */
+/**
+ * パスはワークスペースルートからの相対パス。`paths` は読み取りと存在確認、`directories` は列挙。
+ * `outputs` は target の成果物。Nx が保存・復元するものなので、入力として評価しない。
+ */
 export type DependencyList = {
-  readonly version: 1;
+  readonly version: 2;
   readonly paths: readonly string[];
   readonly directories: readonly string[];
+  readonly outputs: readonly string[];
 };
 
 // Nx のワークスペースデータと Git のメタデータは、Nx 自身もタスクハッシュに含めない
@@ -28,7 +32,36 @@ const toWorkspacePath = (workspaceRoot: string, absolutePath: string): string | 
 
 const sortedUnique = (values: Iterable<string>): string[] => [...new Set(values)].sort();
 
-export const toDependencyList = (accesses: readonly Access[], workspaceRoot: string): DependencyList => {
+const isWithin = (path: string, base: string): boolean => base === '.' || path === base || path.startsWith(`${base}/`);
+
+/** 成果物そのもの・その中・その祖先のパス。成果物の削除や復元で状態が変わるため、入力として評価しない。 */
+const touchesOutput = (path: string, outputs: readonly string[]): boolean =>
+  outputs.some((output) => isWithin(path, output) || isWithin(output, path));
+
+const GLOB_CHARACTERS = /[*?[\]{}!]/;
+
+/**
+ * Nx の outputs（ワークスペースルートからの相対パス。glob を含みうる）を、除外に使うディレクトリまたはファイルのパスにする。
+ * glob はその手前のディレクトリまでに広げる。否定 (`!`) は除外を狭めるだけなので使わない。
+ */
+export const toOutputPaths = (outputs: readonly string[]): string[] =>
+  sortedUnique(
+    outputs
+      .filter((output) => !output.startsWith('!'))
+      .map((output) => {
+        const segments = output.split('/');
+        const index = segments.findIndex((segment) => GLOB_CHARACTERS.test(segment));
+        return (index === -1 ? segments : segments.slice(0, index)).join('/');
+      })
+      // 先頭から glob の outputs はワークスペース全体を除外してしまうため使わない
+      .filter((output) => output !== ''),
+  );
+
+export const toDependencyList = (
+  accesses: readonly Access[],
+  workspaceRoot: string,
+  outputs: readonly string[],
+): DependencyList => {
   const inWorkspace = accesses.flatMap((access) => {
     const path = toWorkspacePath(workspaceRoot, access.path);
     return path === undefined ? [] : [{ kind: access.kind, path }];
@@ -37,14 +70,26 @@ export const toDependencyList = (accesses: readonly Access[], workspaceRoot: str
   const written = new Set(inWorkspace.filter((a) => a.kind === 'write').map((a) => a.path));
   const observed = (kind: Access['kind']) =>
     sortedUnique(inWorkspace.filter((a) => a.kind === kind && !written.has(a.path)).map((a) => a.path));
-  return { version: 1, paths: observed('read'), directories: observed('readDir') };
+  return {
+    version: 2,
+    paths: observed('read').filter((path) => !touchesOutput(path, outputs)),
+    // 成果物の祖先の列挙は残し、評価時に成果物へ通じるエントリだけを無視する
+    directories: observed('readDir').filter((path) => !outputs.some((output) => isWithin(path, output))),
+    outputs: sortedUnique(outputs),
+  };
 };
 
-export const mergeDependencyLists = (a: DependencyList, b: DependencyList): DependencyList => ({
-  version: 1,
-  paths: sortedUnique([...a.paths, ...b.paths]),
-  directories: sortedUnique([...a.directories, ...b.directories]),
-});
+export const mergeDependencyLists = (a: DependencyList, b: DependencyList): DependencyList => {
+  const outputs = sortedUnique([...a.outputs, ...b.outputs]);
+  return {
+    version: 2,
+    paths: sortedUnique([...a.paths, ...b.paths]).filter((path) => !touchesOutput(path, outputs)),
+    directories: sortedUnique([...a.directories, ...b.directories]).filter(
+      (path) => !outputs.some((output) => isWithin(path, output)),
+    ),
+    outputs,
+  };
+};
 
 const isMissingError = (error: unknown): boolean =>
   error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
@@ -57,9 +102,10 @@ const pathState = (absolutePath: string): string => {
   return 'other';
 };
 
-const directoryState = (absolutePath: string): string => {
+const directoryState = (workspaceRoot: string, path: string, outputs: readonly string[]): string => {
   try {
-    return readdirSync(absolutePath, { withFileTypes: true })
+    return readdirSync(join(workspaceRoot, path), { withFileTypes: true })
+      .filter((entry) => !touchesOutput(path === '.' ? entry.name : `${path}/${entry.name}`, outputs))
       .map((entry) => `${entry.name}:${entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : entry.isSymbolicLink() ? 'l' : 'o'}`)
       .sort()
       .join('\n');
@@ -73,6 +119,6 @@ const directoryState = (absolutePath: string): string => {
 export const fingerprint = (list: DependencyList, workspaceRoot: string): string => {
   const hash = createHash('sha256');
   for (const path of list.paths) hash.update(`path\0${path}\0${pathState(join(workspaceRoot, path))}\0`);
-  for (const path of list.directories) hash.update(`dir\0${path}\0${directoryState(join(workspaceRoot, path))}\0`);
+  for (const path of list.directories) hash.update(`dir\0${path}\0${directoryState(workspaceRoot, path, list.outputs)}\0`);
   return hash.digest('hex');
 };
