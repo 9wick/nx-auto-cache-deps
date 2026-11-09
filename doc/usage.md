@@ -102,5 +102,4 @@ worktree A で実行した後、同じ入力の worktree B で実行すると、
 | Nx | 24 |
 | Node.js | 24 以上 |
 
-追跡に使うトレーサーは、環境ごとの OS 別パッケージ (`nx-auto-cache-deps-<platform>`) として `optionalDependencies` から自動で入る。
-optional dependencies を無効にしてインストールした環境や、上記以外の環境では、対象 target の実行時にエラーになる。
+追跡に使うトレーサーは、上記の全環境の分がパッケージに同梱されている。上記以外の環境では、対象 target の実行時にエラーになる。

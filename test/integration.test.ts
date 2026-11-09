@@ -19,13 +19,12 @@ const prepareTemplate = async () => {
   const { currentPlatform } = (await import(join(root, 'dist/platform.js'))) as typeof import('../src/platform.ts');
   const platform = currentPlatform();
   assert.ok(platform, `${process.platform}-${process.arch} is not a supported platform`);
-  const platformDirectory = run('node', ['scripts/pack-platform.mjs', platform.id], root).trim();
-  const tarball = (cwd: string) => join(sandbox, run('npm', ['pack', '--silent', '--pack-destination', sandbox], cwd).trim());
-  // 配布時と同じく、本体と OS 別パッケージの tarball を入れる
-  const packages = [tarball(root), tarball(platformDirectory)];
+  run('node', ['scripts/stage-binary.mjs', platform.id], root);
+  // 配布時と同じく、npm pack で作った tarball を入れる
+  const tarball = join(sandbox, run('npm', ['pack', '--silent', '--pack-destination', sandbox], root).trim());
   mkdirSync(template, { recursive: true });
   writeFileSync(join(template, 'package.json'), JSON.stringify({ name: 'template', private: true, type: 'module' }));
-  run('npm', ['install', '--no-audit', '--no-fund', 'nx@24.0.5', '@nx/vite@24.0.5', 'vite@8.3.6', ...packages], template);
+  run('npm', ['install', '--no-audit', '--no-fund', 'nx@24.0.5', '@nx/vite@24.0.5', 'vite@8.3.6', tarball], template);
 };
 
 type Files = Record<string, string>;

@@ -1,4 +1,4 @@
-# プラットフォームごとにトレーサーをビルドし、統合テストを通したうえで OS 別パッケージの tarball を作る。
+# プラットフォームごとにトレーサーをビルドし、統合テストを通したうえでバイナリをアップロードする。
 name: build
 
 on:
@@ -34,12 +34,11 @@ jobs:
         run: rustup toolchain install
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Pack platform package
-        run: |
-          mkdir -p .tmp/release
-          npm pack "$(node scripts/pack-platform.mjs ${{ matrix.id }})" --pack-destination .tmp/release
+      # artifact は実行権限を保たないため、tar に包んで渡す
+      - name: Archive tracer binary
+        run: tar -cf "tracer-${{ matrix.id }}.tar" "bin/${{ matrix.id }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: platform-${{ matrix.id }}
-          path: .tmp/release/*.tgz
+          name: tracer-${{ matrix.id }}
+          path: tracer-${{ matrix.id }}.tar
           if-no-files-found: error

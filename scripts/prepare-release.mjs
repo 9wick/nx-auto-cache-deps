@@ -1,18 +1,21 @@
-// 本体の package.json に、同じバージョンの OS 別パッケージを optionalDependencies として書き込む。
+// 公開前に、タグとバージョンの一致と、全プラットフォームのバイナリの同梱を確かめ、repository を書き込む。
 // 使い方: node scripts/prepare-release.mjs <tag>   (tag は v<version>)
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { PLATFORMS, platformPackageName } from '../dist/platform.js';
-import { repository, root, rootPackageJson } from './release-metadata.mjs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { PLATFORMS, traceBinaryPath } from '../dist/platform.js';
 
-const packageJson = rootPackageJson();
+const root = resolve(import.meta.dirname, '..');
+const packageJsonPath = join(root, 'package.json');
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
 const tag = process.argv[2];
 if (tag !== `v${packageJson.version}`) {
   throw new Error(`tag ${tag} does not match package.json version ${packageJson.version}`);
 }
-const updated = {
-  ...packageJson,
-  repository: repository(),
-  optionalDependencies: Object.fromEntries(PLATFORMS.map((platform) => [platformPackageName(platform), packageJson.version])),
-};
-writeFileSync(join(root, 'package.json'), `${JSON.stringify(updated, null, 2)}\n`);
+const missing = PLATFORMS.map(traceBinaryPath).filter((path) => !existsSync(join(root, path)));
+if (missing.length > 0) throw new Error(`missing tracer binaries: ${missing.join(', ')}`);
+
+const repository = process.env.GITHUB_REPOSITORY;
+if (repository === undefined) throw new Error('GITHUB_REPOSITORY is not set');
+// provenance は package.json の repository と公開元のリポジトリの一致を検証するため、実行中のリポジトリから決める
+packageJson.repository = { type: 'git', url: `git+https://github.com/${repository}.git` };
+writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);

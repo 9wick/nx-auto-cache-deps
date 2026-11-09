@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export const PACKAGE_NAME = 'nx-auto-cache-deps';
 
@@ -10,17 +10,18 @@ export type Platform = {
   readonly libc?: 'glibc';
 };
 
-/** トレーサーのバイナリを配布するプラットフォーム。リリース時は各 id ごとに OS 別パッケージを公開する。 */
+/** トレーサーのバイナリを同梱するプラットフォーム。パッケージには bin/<id>/ として全プラットフォーム分を入れる。 */
 export const PLATFORMS: readonly Platform[] = [
   { id: 'linux-x64-gnu', os: 'linux', cpu: 'x64', libc: 'glibc' },
   { id: 'linux-arm64-gnu', os: 'linux', cpu: 'arm64', libc: 'glibc' },
   { id: 'darwin-arm64', os: 'darwin', cpu: 'arm64' },
 ];
 
-export const platformPackageName = (platform: Platform): string => `${PACKAGE_NAME}-${platform.id}`;
-
 export const traceBinaryName = (os: NodeJS.Platform): string =>
   `${PACKAGE_NAME}-trace${os === 'win32' ? '.exe' : ''}`;
+
+/** パッケージ内でのバイナリの位置。パッケージのルートからの相対パス。 */
+export const traceBinaryPath = (platform: Platform): string => `bin/${platform.id}/${traceBinaryName(platform.os)}`;
 
 const isGlibc = (): boolean => {
   const header = (process.report.getReport() as { header?: { glibcVersionRuntime?: string } }).header;
@@ -35,20 +36,13 @@ export const currentPlatform = (): Platform | undefined =>
       (platform.libc === undefined || isGlibc()),
   );
 
-/** 実行中の環境に対応する OS 別パッケージから、トレーサーのバイナリを探す。 */
+/** 実行中の環境に対応する、同梱のトレーサーのバイナリを返す。 */
 export const resolveTraceBinary = (): string => {
   const platform = currentPlatform();
   if (platform === undefined) {
     throw new Error(`${PACKAGE_NAME}: ${process.platform}-${process.arch} is not supported`);
   }
-  const name = platformPackageName(platform);
-  let packageJson: string;
-  try {
-    packageJson = createRequire(import.meta.url).resolve(`${name}/package.json`);
-  } catch (error) {
-    throw new Error(`${PACKAGE_NAME}: ${name} is not installed. Reinstall ${PACKAGE_NAME} with optional dependencies enabled.`, {
-      cause: error,
-    });
-  }
-  return join(dirname(packageJson), 'bin', traceBinaryName(platform.os));
+  const binary = fileURLToPath(new URL(`../${traceBinaryPath(platform)}`, import.meta.url));
+  if (!existsSync(binary)) throw new Error(`${PACKAGE_NAME}: tracer binary is missing: ${binary}`);
+  return binary;
 };
