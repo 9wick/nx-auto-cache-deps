@@ -1,0 +1,43 @@
+# v<version> タグの push で、OS 別パッケージと本体を npm に公開する。
+# 認証は npm の Trusted Publishing (OIDC)。
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.14.0
+          registry-url: https://registry.npmjs.org
+      # Trusted Publishing には npm CLI 11.5.1 以上が必要
+      - run: npm install --global npm@12.2.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: platform-*
+          path: .tmp/release
+          merge-multiple: true
+      # タグとバージョンの不一致は、どのパッケージも公開する前に止める
+      - run: node scripts/prepare-release.mjs "${{ github.ref_name }}"
+      - name: Publish platform packages
+        run: for tarball in .tmp/release/*.tgz; do npm publish "$tarball" --access public; done
+      - name: Publish nx-auto-cache-deps
+        run: npm publish --access public

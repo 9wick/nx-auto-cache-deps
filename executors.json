@@ -1,0 +1,9 @@
+{
+  "executors": {
+    "run": {
+      "implementation": "./dist/executor.js",
+      "schema": "./schemas/run.json",
+      "description": "Runs original_executor under file access tracing and records the dependency list."
+    }
+  }
+}

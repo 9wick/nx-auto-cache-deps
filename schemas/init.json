@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "nx-auto-cache-deps:init",
+  "description": "Registers nx-auto-cache-deps in nx.json.",
+  "type": "object",
+  "properties": {}
+}

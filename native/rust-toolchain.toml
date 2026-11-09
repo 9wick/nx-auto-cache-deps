@@ -1,0 +1,4 @@
+# fspy は preload ライブラリの埋め込みに cargo の nightly 機能 (bindeps) を使う
+[toolchain]
+channel = "nightly-2026-08-02"
+profile = "minimal"

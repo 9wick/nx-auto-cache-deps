@@ -1,0 +1,9 @@
+{
+  "generators": {
+    "init": {
+      "factory": "./dist/generators/init.js",
+      "schema": "./schemas/init.json",
+      "description": "Registers nx-auto-cache-deps in nx.json."
+    }
+  }
+}

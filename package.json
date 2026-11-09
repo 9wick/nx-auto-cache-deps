@@ -1,0 +1,41 @@
+{
+  "name": "nx-auto-cache-deps",
+  "version": "0.0.0",
+  "description": "Nx plugin that derives cache inputs from the files a task actually accessed",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/plugin.js",
+  "exports": {
+    ".": "./dist/plugin.js",
+    "./package.json": "./package.json"
+  },
+  "executors": "./executors.json",
+  "generators": "./generators.json",
+  "files": [
+    "dist",
+    "schemas",
+    "executors.json",
+    "generators.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:native": "node scripts/build-native.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-concurrency=1 test/*.test.ts"
+  },
+  "peerDependencies": {
+    "nx": ">=24.0.0 <25"
+  },
+  "dependencies": {
+    "@nx/devkit": "24.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "nx": "24.0.5",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.18.0"
+}

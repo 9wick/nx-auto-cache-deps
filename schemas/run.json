@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "nx-auto-cache-deps:run",
+  "description": "Options are passed through to original_executor.",
+  "type": "object",
+  "properties": {
+    "__unparsed__": {
+      "hidden": true,
+      "type": "array",
+      "items": { "type": "string" },
+      "$default": { "$source": "unparsed" }
+    }
+  },
+  "additionalProperties": true
+}
