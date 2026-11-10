@@ -97,7 +97,7 @@ Dependency lists share Nx's cache directory and work across git worktrees. `nx r
 
 Tracer binaries are included in the package; users do not need Rust installed.
 
-- Linux: x64 with glibc or musl; arm64 with glibc
+- Linux: x64 with glibc 2.35+ or musl; arm64 with glibc 2.35+
 - macOS: x64 and arm64
 - Windows: x64
 

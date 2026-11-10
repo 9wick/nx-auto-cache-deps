@@ -15,9 +15,9 @@ jobs:
       matrix:
         include:
           - id: linux-x64-gnu
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
           - id: linux-arm64-gnu
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
           - id: darwin-arm64
             runner: macos-15
           - id: darwin-x64
@@ -27,6 +27,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # 配布用バイナリを最低対応 glibc でビルド・統合テストする。
+      - name: Verify minimum supported glibc
+        if: runner.os == 'Linux'
+        run: test "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.35'
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
