@@ -5,6 +5,7 @@
 | 文書 | 内容 |
 | --- | --- |
 | [仕様](./spec.md) | 2段階キャッシュ、依存クエリ、Nx との接続 |
+| [Cache behavior (English)](./caching.md) | README から参照するキャッシュの詳細 |
 | [利用手順](./usage.md) | 導入・対象の選び方・実行時の動作・解除 |
 | [受け入れ条件](./acceptance.md) | 統合テストで確かめる条件 |
 | [リリース手順](./release.md) | パッケージ構成、GitHub Actions、npm への公開 |

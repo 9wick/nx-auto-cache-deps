@@ -31,6 +31,7 @@ npm への認証は Trusted Publishing (OIDC) で行い、provenance は自動�
 
 トレーサーには Rust の crate が静的にリンクされ、macOS 用には fspy が uutils coreutils と oils-for-unix を埋め込む。
 それらのライセンスを `THIRD_PARTY_LICENSES` にまとめ、パッケージに同梱している。
+配布する通知には開発者向けの再生成手順を入れない。ライセンス本文はプレーンテキストとして出力し、HTML エスケープしない（`about.hbs` の `{{{text}}}` を使う）。
 
 `native/Cargo.toml`・`native/Cargo.lock` や fspy の rev を変えたときは作り直す。
 
