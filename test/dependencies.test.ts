@@ -24,6 +24,21 @@ test('ルートの列挙でも Git・Nx のメタデータを入力に含めな�
   }
 });
 
+test('成果物の親でも、通常の入力を含む列挙が新たに見つかったらハッシュを更新する', () => {
+  const temporary = resolve(import.meta.dirname, '../.tmp');
+  mkdirSync(temporary, { recursive: true });
+  const workspace = mkdtempSync(join(temporary, 'new-query-'));
+  try {
+    writeFileSync(join(workspace, 'input.txt'), 'input');
+    const outputs = ['dist/b'];
+    const initial = toDependencyList([], workspace, outputs);
+    const expanded = toDependencyList([{ kind: 'readDir', path: workspace }], workspace, outputs);
+    assert.notEqual(fingerprint(initial, workspace), fingerprint(expanded, workspace));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test('成果物だけを含む親の列挙が後から観測されてもハッシュを変えず、他の入力追加は検出する', () => {
   const temporary = resolve(import.meta.dirname, '../.tmp');
   mkdirSync(temporary, { recursive: true });
