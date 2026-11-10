@@ -1,4 +1,4 @@
-//! `nx-auto-cache-deps-trace <report.json> <program> [args...]`
+//! `nx-auto-cache-deps-trace <report.json> <workspace-root> <program> [args...]`
 //! program を fspy の監視下で実行し、アクセス記録を report.json に書き、program の終了コードで終わる。
 
 use serde::Serialize;
@@ -32,6 +32,11 @@ async fn main() -> ExitCode {
 async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let mut args = env::args_os().skip(1);
     let report_path = PathBuf::from(args.next().ok_or("missing report path")?);
+    let workspace_root = PathBuf::from(args.next().ok_or("missing workspace root")?);
+    if !workspace_root.is_absolute() {
+        return Err("workspace root is not absolute".into());
+    }
+    let volume_root = workspace_root.ancestors().last().ok_or("missing volume root")?;
     let program = args.next().ok_or("missing program")?;
     let mut command = fspy::Command::new(program);
     command
@@ -56,8 +61,12 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
                     | fspy::PathAccess::Mkdir(_) => "write",
                 };
                 for path in access.paths() {
-                    let cleaned = path.clean_and_strip_path_prefix(PathBuf::from("/"))?;
-                    let absolute = PathBuf::from("/").join(cleaned);
+                    // 他のボリュームや NT デバイスはワークスペース外。
+                    // ディレクトリ名の大小文字には依存せず、ワークスペースのボリュームだけで絞る。
+                    let Ok(relative) = path.clean_and_strip_path_prefix(volume_root) else {
+                        continue;
+                    };
+                    let absolute = volume_root.join(relative);
                     let Some(path) = absolute.to_str() else {
                         return Err("non-UTF-8 path".into());
                     };

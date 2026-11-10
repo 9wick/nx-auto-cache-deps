@@ -18,7 +18,7 @@ The plugin uses two layers of caching:
 3. **If a dependency list exists**: The plugin evaluates the recorded dependencies against the current filesystem and returns their hash. Nx includes this hash in the task hash and queries its cache, restoring existing outputs on a cache hit.
 4. When the command executes, fspy traces the process tree. Upon successful completion, the observed dependencies are saved to the dependency list.
 
-> **Note on Initial Cache Hits**: The result of a run executed without a dependency list is saved under a key that does not include dependency hashes and is not reused. The subsequent run computes a hash from the newly saved dependency list, executes, and caches its outputs under that hash. Therefore, with unchanged inputs, the first cache restore occurs from the **3rd run onward**.
+> **Note on Initial Cache Hits**: The result of a run executed without a dependency list is saved under a key that does not include dependency hashes and is not reused. The subsequent run computes a hash from the newly saved dependency list, executes, and caches its outputs under that hash. The first cache restore can occur on the **3rd run**. If later runs discover additional dependencies (for example, Windows shell commands can list additional directories once outputs exist), the dependency list expands and another execution is needed to cache results under the updated hash. Cache restoration starts once that list stabilizes.
 
 ### What Is Tracked
 
@@ -118,7 +118,7 @@ Tracer binaries are bundled for all supported platforms:
 
 | Item | Supported |
 | --- | --- |
-| OS & Architecture | Linux x64 (glibc), Linux arm64 (glibc), macOS arm64 |
+| OS & Architecture | Linux x64 (glibc / musl), Linux arm64 (glibc), macOS x64 / arm64, Windows x64 |
 | Nx | 24 |
 | Node.js | >= 24 |
 

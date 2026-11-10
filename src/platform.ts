@@ -5,16 +5,20 @@ export const PACKAGE_NAME = 'nx-auto-cache-deps';
 
 export type Platform = {
   readonly id: string;
-  readonly os: NodeJS.Platform;
   readonly cpu: NodeJS.Architecture;
-  readonly libc?: 'glibc';
-};
+} & (
+  | { readonly os: 'linux'; readonly libc: 'glibc' | 'musl' }
+  | { readonly os: 'darwin' | 'win32' }
+);
 
 /** トレーサーのバイナリを同梱するプラットフォーム。パッケージには bin/<id>/ として全プラットフォーム分を入れる。 */
 export const PLATFORMS: readonly Platform[] = [
   { id: 'linux-x64-gnu', os: 'linux', cpu: 'x64', libc: 'glibc' },
   { id: 'linux-arm64-gnu', os: 'linux', cpu: 'arm64', libc: 'glibc' },
+  { id: 'linux-x64-musl', os: 'linux', cpu: 'x64', libc: 'musl' },
   { id: 'darwin-arm64', os: 'darwin', cpu: 'arm64' },
+  { id: 'darwin-x64', os: 'darwin', cpu: 'x64' },
+  { id: 'win32-x64-msvc', os: 'win32', cpu: 'x64' },
 ];
 
 export const traceBinaryName = (os: NodeJS.Platform): string =>
@@ -33,7 +37,7 @@ export const currentPlatform = (): Platform | undefined =>
     (platform) =>
       platform.os === process.platform &&
       platform.cpu === process.arch &&
-      (platform.libc === undefined || isGlibc()),
+      (platform.os !== 'linux' || platform.libc === (isGlibc() ? 'glibc' : 'musl')),
   );
 
 /** 実行中の環境に対応する、同梱のトレーサーのバイナリを返す。 */

@@ -3,7 +3,9 @@
 ## 構成
 
 npm に公開するのは `nx-auto-cache-deps` の1パッケージだけ。全プラットフォームのトレーサーを `bin/<platform>/nx-auto-cache-deps-trace` として同梱し、実行時に環境に合うものを使う。
-同梱するプラットフォームは `src/platform.ts` の `PLATFORMS` で決める。`.github/workflows/build.yml` の matrix も同じ id にそろえる。
+同梱するプラットフォームは `src/platform.ts` の `PLATFORMS` で決める。`.github/workflows/build.yml` の matrix と `build-musl` も同じ id にそろえる。
+Windows x64 は `bin/win32-x64-msvc/nx-auto-cache-deps-trace.exe` に同梱する。Windows でのビルドには MSVC の C++ ビルドツールが必要（CI の Windows runner には導入済み）。
+macOS x64 は Intel runner、Linux x64 musl は Ubuntu runner 上の Alpine コンテナでビルド・統合テストする。musl の検証は `scripts/ci-musl.sh` を使い、fspy の seccomp による追跡を許可するためコンテナに `--security-opt seccomp=unconfined` を指定する。
 
 `package.json` の `preferUnplugged` は、Yarn の PnP でもバイナリを zip から展開して実行できるようにするため。
 

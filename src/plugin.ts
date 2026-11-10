@@ -8,7 +8,7 @@ import type {
 } from '@nx/devkit';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, dirname, join, matchesGlob, relative } from 'node:path';
+import { basename, dirname, join, matchesGlob, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { taskKey } from './store.js';
 
@@ -37,7 +37,7 @@ const loadWrappedPlugin = (workspaceRoot: string, name: string): WrappedPlugin =
 
 const fingerprintCommand = (workspaceRoot: string, key: string): Input => {
   // worktree ごとにタスクハッシュが変わらないよう、スクリプトはワークスペースからの相対パスで指す
-  const script = relative(workspaceRoot, fileURLToPath(new URL('./fingerprint-cli.js', import.meta.url)));
+  const script = relative(workspaceRoot, fileURLToPath(new URL('./fingerprint-cli.js', import.meta.url))).split(sep).join('/');
   return { runtime: `node ${JSON.stringify(script)} ${JSON.stringify(key)}` };
 };
 

@@ -20,6 +20,10 @@ jobs:
             runner: ubuntu-24.04-arm
           - id: darwin-arm64
             runner: macos-15
+          - id: darwin-x64
+            runner: macos-15-intel
+          - id: win32-x64-msvc
+            runner: windows-2025
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,4 +45,20 @@ jobs:
         with:
           name: tracer-${{ matrix.id }}
           path: tracer-${{ matrix.id }}.tar
+          if-no-files-found: error
+
+  build-musl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # JavaScript actions はホスト側で実行し、ビルド・検証は musl の Node.js で行う。
+      - name: Build and test on Alpine Linux
+        run: |
+          docker run --rm --shm-size=256m --security-opt seccomp=unconfined \
+            -e CI=true -v "$PWD:/workspace" -w /workspace \
+            node:24.22.2-alpine3.23 sh scripts/ci-musl.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tracer-linux-x64-musl
+          path: tracer-linux-x64-musl.tar
           if-no-files-found: error

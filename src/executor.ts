@@ -35,7 +35,7 @@ export default async function run(options: Record<string, unknown>, context: Exe
     const execution: OriginalExecution = { executor: target.original_executor, options, context };
     writeFileSync(payload, JSON.stringify(execution));
 
-    const code = await runTraced([reportPath, process.execPath, runOriginalScript, payload], process.cwd());
+    const code = await runTraced([reportPath, context.root, process.execPath, runOriginalScript, payload], process.cwd());
     const report = JSON.parse(readFileSync(reportPath, 'utf8')) as TraceReport;
     if (report.status === 'incomplete') {
       logger.warn(`nx-auto-cache-deps: tracing of ${projectName}:${targetName} was incomplete, dependency list not updated: ${report.reason}`);
