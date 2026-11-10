@@ -23,3 +23,27 @@ test('ルートの列挙でも Git・Nx のメタデータを入力に含めな�
     rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test('成果物だけを含む親の列挙が後から観測されてもハッシュを変えず、他の入力追加は検出する', () => {
+  const temporary = resolve(import.meta.dirname, '../.tmp');
+  mkdirSync(temporary, { recursive: true });
+  const workspace = mkdtempSync(join(temporary, 'output-parent-'));
+  try {
+    const outputs = ['dist/b'];
+    const unobserved = toDependencyList([], workspace, outputs);
+    const observed = toDependencyList([{ kind: 'readDir', path: join(workspace, 'dist') }], workspace, outputs);
+    const original = fingerprint(unobserved, workspace);
+    assert.equal(fingerprint(observed, workspace), original, '親が存在しない');
+    mkdirSync(join(workspace, 'dist'));
+    assert.equal(fingerprint(observed, workspace), original, '親が空');
+    mkdirSync(join(workspace, 'dist/b'));
+    writeFileSync(join(workspace, 'dist/b/out.txt'), 'output');
+    assert.equal(fingerprint(observed, workspace), original, '成果物だけが存在する');
+    writeFileSync(join(workspace, 'dist/input.txt'), 'input');
+    assert.notEqual(fingerprint(observed, workspace), original, '成果物以外の入力が増える');
+    rmSync(join(workspace, 'dist'), { recursive: true });
+    assert.equal(fingerprint(observed, workspace), original, '成果物と親が削除される');
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});

@@ -213,10 +213,11 @@ describe('2段階キャッシュ', () => {
   test('A3: 成果物の親ディレクトリを確認するコマンドでも、成果物を入力にしない', () => {
     const ws = createWorkspace('outputs');
     assert.equal(build(ws, 'b:build'), true);
+    const first = cacheSnapshot(ws);
     assert.equal(build(ws, 'b:build'), true);
     const before = cacheSnapshot(ws);
     const executed = build(ws, 'b:build');
-    assert.equal(executed, false, `mkdir が既存の dist を確認しても、3回目で復元\nBefore: ${before}\nAfter: ${cacheSnapshot(ws)}`);
+    assert.equal(executed, false, `mkdir が既存の dist を確認しても、3回目で復元\nFirst: ${first}\nBefore: ${before}\nAfter: ${cacheSnapshot(ws)}`);
     rmSync(join(ws, 'dist'), { recursive: true });
     assert.equal(build(ws, 'b:build'), false, '成果物と親ディレクトリを消しても復元');
     assert.equal(readFileSync(join(ws, 'dist/b/out.txt'), 'utf8'), 'b\n');

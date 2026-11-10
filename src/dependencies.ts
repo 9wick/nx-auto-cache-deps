@@ -120,6 +120,12 @@ const directoryState = (workspaceRoot: string, path: string, outputs: readonly s
 export const fingerprint = (list: DependencyList, workspaceRoot: string): string => {
   const hash = createHash('sha256');
   for (const path of list.paths) hash.update(`path\0${path}\0${pathState(join(workspaceRoot, path))}\0`);
-  for (const path of list.directories) hash.update(`dir\0${path}\0${directoryState(workspaceRoot, path, list.outputs)}\0`);
+  for (const path of list.directories) {
+    const state = directoryState(workspaceRoot, path, list.outputs);
+    // 成果物しか含まない親の列挙は、後の実行で初めて観測されても入力を増やさない。
+    const outputParent = list.outputs.some((output) => isWithin(output, path));
+    if (outputParent && (state === '' || state === 'missing')) continue;
+    hash.update(`dir\0${path}\0${state}\0`);
+  }
   return hash.digest('hex');
 };
