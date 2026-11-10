@@ -7,6 +7,8 @@ npm に公開するのは `nx-auto-cache-deps` の1パッケージだけ。全�
 Windows x64 は `bin/win32-x64-msvc/nx-auto-cache-deps-trace.exe` に同梱する。Windows でのビルドには MSVC の C++ ビルドツールが必要（CI の Windows runner には導入済み）。
 macOS x64 は Intel runner、Linux x64 musl は Ubuntu runner 上の Alpine コンテナでビルド・統合テストする。musl の検証は `scripts/ci-musl.sh` を使い、fspy の seccomp による追跡を許可するためコンテナに `--security-opt seccomp=unconfined` を指定する。
 
+Linux glibc の最低対応は 2.35（Ubuntu 22.04）。x64・arm64 とも Ubuntu 22.04 runner でビルド・統合テストする。テスト前に glibc が 2.35 であることを検査し、誤った環境では停止する。統合テストはビルドしたバイナリを npm tarball に同梱し、実際の Nx ワークスペースで実行する。成功した同じバイナリを artifact にして公開へ渡す。最低対応を変更するときは、runner・glibc バージョン検査・README をそろえて更新する。
+
 `package.json` の `preferUnplugged` は、Yarn の PnP でもバイナリを zip から展開して実行できるようにするため。
 
 | ワークフロー | タイミング | 内容 |
