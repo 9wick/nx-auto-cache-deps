@@ -105,6 +105,7 @@ const pathState = (absolutePath: string): string => {
 const directoryState = (workspaceRoot: string, path: string, outputs: readonly string[]): string => {
   try {
     return readdirSync(join(workspaceRoot, path), { withFileTypes: true })
+      .filter((entry) => path !== '.' || !EXCLUDED_ROOTS.includes(entry.name))
       .filter((entry) => !touchesOutput(path === '.' ? entry.name : `${path}/${entry.name}`, outputs))
       .map((entry) => `${entry.name}:${entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : entry.isSymbolicLink() ? 'l' : 'o'}`)
       .sort()

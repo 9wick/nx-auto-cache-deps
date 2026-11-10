@@ -1,10 +1,13 @@
 // 受け入れ条件 (doc/acceptance.md) を、配布用 tarball を入れた実際の Nx ワークスペースで確かめる。
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, globSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { before, describe, test } from 'node:test';
+import { fingerprint } from '../src/dependencies.ts';
+import { readDependencyList } from '../src/store.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const sandbox = join(root, '.tmp', 'test');
@@ -145,6 +148,28 @@ const nx = (workspace: string, args: readonly string[], log = runLog(workspace),
 
 const runCount = (log: string) => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0);
 
+// キャッシュ復元に失敗したとき、依存一覧と実際に評価した入力の差を CI ログに残す。
+const cacheSnapshot = (workspace: string): string => {
+  const cacheHome = join(home, '.nx');
+  return JSON.stringify(globSync('*/cache/nx-auto-cache-deps/dependencies/*.json', { cwd: cacheHome }).map((file) => {
+    const stored = readDependencyList(join(cacheHome, file));
+    if (stored.status !== 'found') return { file, stored };
+    const { list } = stored;
+    return {
+      file, list, hash: fingerprint(list, workspace),
+      paths: list.paths.map((path) => {
+        const absolute = join(workspace, path);
+        const stats = statSync(absolute, { throwIfNoEntry: false });
+        return [path, stats === undefined ? 'missing' : stats.isFile()
+          ? createHash('sha256').update(readFileSync(absolute)).digest('hex') : 'directory'];
+      }),
+      directories: list.directories.map((path) => [path, existsSync(join(workspace, path))
+        ? readdirSync(join(workspace, path), { withFileTypes: true }).map((entry) => [entry.name, entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : 'other'])
+        : 'missing']),
+    };
+  }), null, 2);
+};
+
 /** 実行してコマンドが動いたかを返す。 */
 const build = (workspace: string, target = 'a:build', log = runLog(workspace), env: Record<string, string> = {}): boolean => {
   const before = runCount(log);
@@ -189,7 +214,9 @@ describe('2段階キャッシュ', () => {
     const ws = createWorkspace('outputs');
     assert.equal(build(ws, 'b:build'), true);
     assert.equal(build(ws, 'b:build'), true);
-    assert.equal(build(ws, 'b:build'), false, 'mkdir が既存の dist を確認しても、3回目で復元');
+    const before = cacheSnapshot(ws);
+    const executed = build(ws, 'b:build');
+    assert.equal(executed, false, `mkdir が既存の dist を確認しても、3回目で復元\nBefore: ${before}\nAfter: ${cacheSnapshot(ws)}`);
     rmSync(join(ws, 'dist'), { recursive: true });
     assert.equal(build(ws, 'b:build'), false, '成果物と親ディレクトリを消しても復元');
     assert.equal(readFileSync(join(ws, 'dist/b/out.txt'), 'utf8'), 'b\n');
@@ -273,7 +300,10 @@ describe('Nx との接続', () => {
     run('git', ['worktree', 'prune'], a);
     run('git', ['worktree', 'add', '-q', b], a);
     symlinkSync(join(template, 'node_modules'), join(b, 'node_modules'), 'junction');
-    assert.equal(build(b, 'a:build', log), false, 'B は A の一覧と結果を使う');
+    const aSnapshot = cacheSnapshot(a);
+    const bSnapshot = cacheSnapshot(b);
+    const executed = build(b, 'a:build', log);
+    assert.equal(executed, false, `B は A の一覧と結果を使う\nA: ${aSnapshot}\nB: ${bSnapshot}\nAfter: ${cacheSnapshot(b)}`);
     assert.equal(readFileSync(join(b, 'dist/a/out.txt'), 'utf8'), 'one\n');
     writeFileSync(join(b, 'libs/a/src/1.txt'), 'changed in b\n');
     assert.equal(build(b, 'a:build', log), true, 'B だけの変更は A の結果を使わない');
