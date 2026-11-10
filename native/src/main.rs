@@ -56,8 +56,11 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
                     | fspy::PathAccess::Mkdir(_) => "write",
                 };
                 for path in access.paths() {
-                    let cleaned = path.clean_and_strip_path_prefix(PathBuf::from("/"))?;
-                    let absolute = PathBuf::from("/").join(cleaned);
+                    // 空の prefix で絶対パスを保ち、Windows の NT namespace だけを正規化する。
+                    let absolute = path.clean_and_strip_path_prefix(PathBuf::new())?;
+                    if !absolute.is_absolute() {
+                        return Err("traced path is not absolute".into());
+                    }
                     let Some(path) = absolute.to_str() else {
                         return Err("non-UTF-8 path".into());
                     };

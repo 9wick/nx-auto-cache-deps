@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import type { DependencyList } from './dependencies.js';
 
 /** タスクは worktree の場所に依存しないよう、ワークスペースルートからの project root と target 名で識別する。 */
-export const taskKey = (projectRoot: string, targetName: string): string => `${projectRoot}:${targetName}`;
+export const taskKey = (projectRoot: string, targetName: string): string => `${projectRoot.split(sep).join('/')}:${targetName}`;
 
 export const storeDirectory = (cacheDirectory: string): string => join(cacheDirectory, 'nx-auto-cache-deps');
 

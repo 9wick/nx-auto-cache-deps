@@ -118,7 +118,7 @@ Tracer binaries are bundled for all supported platforms:
 
 | Item | Supported |
 | --- | --- |
-| OS & Architecture | Linux x64 (glibc), Linux arm64 (glibc), macOS arm64 |
+| OS & Architecture | Linux x64 (glibc / musl), Linux arm64 (glibc), macOS x64 / arm64, Windows x64 |
 | Nx | 24 |
 | Node.js | >= 24 |
 

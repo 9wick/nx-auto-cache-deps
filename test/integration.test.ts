@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { before, describe, test } from 'node:test';
 
 const root = resolve(import.meta.dirname, '..');
@@ -10,18 +11,24 @@ const sandbox = join(root, '.tmp', 'test');
 const template = join(sandbox, 'template');
 const home = join(sandbox, 'home');
 
-const run = (command: string, args: readonly string[], cwd: string) =>
-  execFileSync(command, args, { cwd, stdio: 'pipe', encoding: 'utf8' });
+const run = (command: string, args: readonly string[], cwd: string) => {
+  // npm/pnpm は Windows では .cmd。固定したコマンドとテスト用パスだけをシェルに渡す。
+  const batch = process.platform === 'win32' && (command === 'npm' || command === 'pnpm');
+  return execFileSync(batch ? `${command}.cmd` : command, batch ? args.map((arg) => `"${arg}"`) : args, {
+    cwd, stdio: 'pipe', encoding: 'utf8', shell: batch,
+  });
+};
 
 const prepareTemplate = async () => {
   run('pnpm', ['build'], root);
   run('node', ['scripts/build-native.mjs'], root);
-  const { currentPlatform } = (await import(join(root, 'dist/platform.js'))) as typeof import('../src/platform.ts');
+  const { currentPlatform } = (await import(pathToFileURL(join(root, 'dist/platform.js')).href)) as typeof import('../src/platform.ts');
   const platform = currentPlatform();
   assert.ok(platform, `${process.platform}-${process.arch} is not a supported platform`);
   run('node', ['scripts/stage-binary.mjs', platform.id], root);
   // 配布時と同じく、npm pack で作った tarball を入れる
   const tarball = join(sandbox, run('npm', ['pack', '--silent', '--pack-destination', sandbox], root).trim());
+  rmSync(template, { recursive: true, force: true });
   mkdirSync(template, { recursive: true });
   writeFileSync(join(template, 'package.json'), JSON.stringify({ name: 'template', private: true, type: 'module' }));
   run('npm', ['install', '--no-audit', '--no-fund', 'nx@24.0.5', '@nx/vite@24.0.5', 'vite@8.3.6', tarball], template);
@@ -70,7 +77,12 @@ const workspaceFiles = (plugins: unknown[]): Files => ({
         original_executor: 'nx:run-commands',
         cache: true,
         outputs: ['{workspaceRoot}/dist/b'],
-        options: { command: 'echo b >> "$RUN_LOG" && mkdir -p ../../dist/b && cat src/*.txt > ../../dist/b/out.txt', cwd: 'libs/b' },
+        options: {
+          command: process.platform === 'win32'
+            ? 'echo b >> "%RUN_LOG%" && (if not exist "../../dist/b" mkdir "../../dist/b") && type src\\*.txt > "../../dist/b/out.txt"'
+            : 'echo b >> "$RUN_LOG" && mkdir -p ../../dist/b && cat src/*.txt > ../../dist/b/out.txt',
+          cwd: 'libs/b',
+        },
       },
     },
   }),
@@ -84,11 +96,12 @@ const workspaceFiles = (plugins: unknown[]): Files => ({
         cache: true,
         inputs: ['autoCacheDeps-build', { env: 'MODE' }],
         outputs: ['{workspaceRoot}/dist/c'],
-        options: { command: 'echo c >> "$RUN_LOG" && mkdir -p ../../dist/c && cat src/*.txt > ../../dist/c/out.txt', cwd: 'libs/c' },
+        options: { command: 'node build.mjs', cwd: 'libs/c' },
       },
     },
   }),
   'libs/c/src/1.txt': 'c\n',
+  'libs/c/build.mjs': BUILD_SCRIPT.replaceAll('dist/a', 'dist/c'),
   'libs/a/src/1.txt': 'one\n',
   'libs/a/README.md': 'unrelated\n',
   'apps/web/project.json': JSON.stringify({ name: 'web' }),
@@ -109,8 +122,9 @@ const createWorkspace = (name: string) => {
   writeFiles(directory, workspaceFiles(PLUGINS));
   // Nx は外部依存のバージョンを package.json とロックファイルから解決する
   for (const file of ['package.json', 'package-lock.json']) copyFileSync(join(template, file), join(directory, file));
-  symlinkSync(join(template, 'node_modules'), join(directory, 'node_modules'));
+  symlinkSync(join(template, 'node_modules'), join(directory, 'node_modules'), 'junction');
   run('git', ['init', '-q', '-b', 'main'], directory);
+  run('git', ['config', 'core.autocrlf', 'false'], directory);
   // Nx は remote からワークスペース ID を決め、同じ ID の worktree でキャッシュを共有する
   run('git', ['remote', 'add', 'origin', `https://example.invalid/${name}.git`], directory);
   run('git', ['add', '-A'], directory);
@@ -118,13 +132,13 @@ const createWorkspace = (name: string) => {
   return directory;
 };
 
-const runLog = (workspace: string) => join(sandbox, `${workspace.split('/').pop()}.runs`);
+const runLog = (workspace: string) => join(sandbox, `${basename(workspace)}.runs`);
 
 const nx = (workspace: string, args: readonly string[], log = runLog(workspace), env: Record<string, string> = {}) => {
-  const result = spawnSync(join(template, 'node_modules/.bin/nx'), [...args, '--output-style=static'], {
+  const result = spawnSync(process.execPath, [join(template, 'node_modules/nx/dist/bin/nx.js'), ...args, '--output-style=static'], {
     cwd: workspace,
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, NX_DAEMON: 'false', NX_NO_CLOUD: 'true', NX_TUI: 'false', RUN_LOG: log, ...env },
+    env: { ...process.env, HOME: home, USERPROFILE: home, NX_DAEMON: 'false', NX_NO_CLOUD: 'true', NX_TUI: 'false', RUN_LOG: log, ...env },
   });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 };
@@ -142,10 +156,25 @@ const build = (workspace: string, target = 'a:build', log = runLog(workspace), e
 before(async () => {
   rmSync(home, { recursive: true, force: true });
   mkdirSync(home, { recursive: true });
+  for (const variable of ['TMPDIR', 'TMP', 'TEMP']) process.env[variable] = sandbox;
   await prepareTemplate();
 });
 
 describe('2段階キャッシュ', () => {
+  test('A14: 空白・日本語を含むパスでも入力変更を検出し、成果物を復元する', () => {
+    const ws = createWorkspace('workspace 日本語 space');
+    const input = join(ws, 'libs/a/src/日本語 file.txt');
+    writeFileSync(input, '日本語\n');
+    assert.equal(build(ws), true);
+    assert.equal(build(ws), true);
+    assert.equal(build(ws), false);
+    writeFileSync(input, '変更\n');
+    assert.equal(build(ws), true);
+    rmSync(join(ws, 'dist'), { recursive: true });
+    assert.equal(build(ws), false);
+    assert.equal(readFileSync(join(ws, 'dist/a/out.txt'), 'utf8'), 'one\n変更\n');
+  });
+
   test('A1-A3: 一覧なしは実行し、一覧のキーで保存した結果を復元する', () => {
     const ws = createWorkspace('two-stage');
     assert.equal(build(ws), true, 'A1: 一覧なしで実行');
@@ -156,11 +185,11 @@ describe('2段階キャッシュ', () => {
     assert.equal(readFileSync(join(ws, 'dist/a/out.txt'), 'utf8'), 'one\n');
   });
 
-  test('A3: 成果物の親ディレクトリを確認するシェルコマンドでも、成果物を入力にしない', () => {
+  test('A3: 成果物の親ディレクトリを確認するコマンドでも、成果物を入力にしない', () => {
     const ws = createWorkspace('outputs');
     assert.equal(build(ws, 'b:build'), true);
     assert.equal(build(ws, 'b:build'), true);
-    assert.equal(build(ws, 'b:build'), false, 'mkdir -p が既存の dist を確認しても、3回目で復元');
+    assert.equal(build(ws, 'b:build'), false, 'mkdir が既存の dist を確認しても、3回目で復元');
     rmSync(join(ws, 'dist'), { recursive: true });
     assert.equal(build(ws, 'b:build'), false, '成果物と親ディレクトリを消しても復元');
     assert.equal(readFileSync(join(ws, 'dist/b/out.txt'), 'utf8'), 'b\n');
@@ -243,7 +272,7 @@ describe('Nx との接続', () => {
     rmSync(b, { recursive: true, force: true });
     run('git', ['worktree', 'prune'], a);
     run('git', ['worktree', 'add', '-q', b], a);
-    symlinkSync(join(template, 'node_modules'), join(b, 'node_modules'));
+    symlinkSync(join(template, 'node_modules'), join(b, 'node_modules'), 'junction');
     assert.equal(build(b, 'a:build', log), false, 'B は A の一覧と結果を使う');
     assert.equal(readFileSync(join(b, 'dist/a/out.txt'), 'utf8'), 'one\n');
     writeFileSync(join(b, 'libs/a/src/1.txt'), 'changed in b\n');

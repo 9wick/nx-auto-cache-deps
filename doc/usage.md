@@ -111,7 +111,7 @@ worktree A で実行した後、同じ入力の worktree B で実行すると、
 
 | 項目 | 対応 |
 | --- | --- |
-| OS・CPU | Linux x64 (glibc)、Linux arm64 (glibc)、macOS arm64 |
+| OS・CPU | Linux x64 (glibc / musl)、Linux arm64 (glibc)、macOS x64 / arm64、Windows x64 |
 | Nx | 24 |
 | Node.js | 24 以上 |
 
