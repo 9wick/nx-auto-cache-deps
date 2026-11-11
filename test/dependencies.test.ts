@@ -4,6 +4,22 @@ import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fingerprint, toDependencyList } from '../src/dependencies.ts';
 
+test('親が通常ファイルのパスへの問い合わせを、欠落として評価する', () => {
+  const temporary = resolve(import.meta.dirname, '../.tmp');
+  mkdirSync(temporary, { recursive: true });
+  const workspace = mkdtempSync(join(temporary, 'not-directory-'));
+  try {
+    writeFileSync(join(workspace, 'index.html'), 'html');
+    const list = toDependencyList([{ kind: 'read', path: join(workspace, 'index.html/tsconfig.json') }], workspace, []);
+    const missing = fingerprint(list, workspace);
+    rmSync(join(workspace, 'index.html'));
+    mkdirSync(join(workspace, 'index.html'));
+    assert.equal(fingerprint(list, workspace), missing, '親がディレクトリになってもパスは欠落したまま');
+    writeFileSync(join(workspace, 'index.html/tsconfig.json'), '{}');
+    assert.notEqual(fingerprint(list, workspace), missing, 'パスが出現したら無効化する');
+  } finally { rmSync(workspace, { recursive: true, force: true }); }
+});
+
 test('ルートの列挙でも Git・Nx のメタデータを入力に含めない', () => {
   const temporary = resolve(import.meta.dirname, '../.tmp');
   mkdirSync(temporary, { recursive: true });

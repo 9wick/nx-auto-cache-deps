@@ -94,10 +94,19 @@ export const mergeDependencyLists = (a: DependencyList, b: DependencyList): Depe
 const isMissingError = (error: unknown): boolean =>
   error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 
+// throwIfNoEntry は ENOTDIR を投げる環境もある。親が通常ファイルなら、その下のパスは存在しない。
+const fileStatus = <T>(read: () => T): T | undefined => {
+  try { return read(); }
+  catch (error) {
+    if (isMissingError(error)) return undefined;
+    throw error;
+  }
+};
+
 const pathState = (absolutePath: string): string => {
-  const entry = lstatSync(absolutePath, { throwIfNoEntry: false });
+  const entry = fileStatus(() => lstatSync(absolutePath, { throwIfNoEntry: false }));
   const link = entry?.isSymbolicLink() ? `symlink:${JSON.stringify(readlinkSync(absolutePath))}:` : '';
-  const stats = statSync(absolutePath, { throwIfNoEntry: false });
+  const stats = fileStatus(() => statSync(absolutePath, { throwIfNoEntry: false }));
   if (stats === undefined) return `${link}missing`;
   if (stats.isDirectory()) return `${link}directory`;
   if (stats.isFile()) return `${link}file:${createHash('sha256').update(readFileSync(absolutePath)).digest('hex')}`;

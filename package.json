@@ -1,6 +1,6 @@
 {
   "name": "nx-auto-cache-deps",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "File-access based command caching and automatic cache inputs for Nx",
   "license": "MIT",
   "type": "module",
