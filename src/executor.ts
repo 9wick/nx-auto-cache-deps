@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mergeDependencyLists, toDependencyList, toOutputPaths } from './dependencies.js';
+import { selectEnvironment } from './environment.js';
+import { readEnvironmentOptions } from './environment-config.js';
 import { readTraceReport, runTraced } from './trace.js';
 import type { OriginalExecution } from './run-original.js';
 import { dependencyListPath, readDependencyList, storeDirectory, taskKey, writeDependencyList } from './store.js';
@@ -27,7 +29,8 @@ export default async function run(options: Record<string, unknown>, context: Exe
     const execution: OriginalExecution = { executor: target.original_executor, options, context };
     writeFileSync(payload, JSON.stringify(execution));
 
-    const code = await runTraced({ report: reportPath, root: context.root, command: [process.execPath, runOriginalScript, payload], cwd: process.cwd() });
+    const code = await runTraced({ report: reportPath, root: context.root, command: [process.execPath, runOriginalScript, payload], cwd: process.cwd(),
+      env: selectEnvironment(process.env, readEnvironmentOptions(context.root)).values });
     const report = readTraceReport(reportPath);
     if (report.status === 'incomplete') {
       logger.warn(`nx-auto-cache-deps: tracing of ${projectName}:${targetName} was incomplete, dependency list not updated: ${report.reason}`);

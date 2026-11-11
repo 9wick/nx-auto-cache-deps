@@ -13,6 +13,7 @@ export type CachedCommand = {
   readonly executable: string;
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
+  readonly environmentFingerprint: string;
 };
 
 type Plan = { readonly version: 1; readonly dependencies: DependencyList; readonly mutable: readonly string[] };
@@ -81,11 +82,10 @@ const readOnlyFingerprint = (plan: Plan, root: string): string => digest([finger
 export const runCachedCommand = async (command: CachedCommand): Promise<number> => {
   const version: unknown = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'));
   const identity = digest({
-    format: 1, version, platform: process.platform, arch: process.arch, node: process.version,
+    format: 2, version, platform: process.platform, arch: process.arch, node: process.version,
     root: command.root, cwd: relative(command.root, command.cwd), executable: command.executable,
     executableHash: fileHash(command.executable), args: command.args,
-    env: Object.entries(command.env).filter((entry): entry is [string, string] => entry[1] !== undefined).sort(([a], [b]) => a.localeCompare(b)),
-    stdinTTY: process.stdin.isTTY === true, stdoutTTY: process.stdout.isTTY === true, stderrTTY: process.stderr.isTTY === true,
+    environment: command.environmentFingerprint,
   });
   const directory = join(command.root, '.nx', 'nx-auto-cache-deps', 'commands', identity);
   mkdirSync(directory, { recursive: true });

@@ -10,13 +10,15 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, matchesGlob, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { EnvironmentOptions } from './environment.js';
+import { readEnvironmentOptions } from './environment-config.js';
 import { taskKey } from './store.js';
 
 export const RUN_EXECUTOR = 'nx-auto-cache-deps:run';
 
 type Input = NonNullable<TargetConfiguration['inputs']>[number];
 
-export type PluginOptions = {
+export type PluginOptions = EnvironmentOptions & {
   /** 包む推論プラグイン。指定がなければ project.json で executor を差し替えた target を扱う。 */
   readonly wrap?: { readonly plugin: string; readonly options?: unknown };
   /** wrap したプラグインが推論する target のうち、対象にする target 名。 */
@@ -131,6 +133,7 @@ const createExplicitNodes = (files: readonly string[], context: CreateNodesConte
 export const createNodes: CreateNodes<PluginOptions> = [
   '**/*',
   async (files, options, context) => {
+    readEnvironmentOptions(context.workspaceRoot);
     const wrap = options?.wrap;
     return wrap === undefined
       ? createExplicitNodes(files, context)

@@ -114,7 +114,7 @@ const workspaceFiles = (plugins: unknown[]): Files => ({
 });
 
 const PLUGINS = [
-  'nx-auto-cache-deps',
+  { plugin: 'nx-auto-cache-deps', options: { env: ['MODE'], untrackedEnv: ['RUN_LOG', 'NX_*', 'TMPDIR'] } },
   { plugin: 'nx-auto-cache-deps', options: { wrap: { plugin: '@nx/vite/plugin', options: {} }, targets: ['build'] } },
 ];
 
@@ -314,7 +314,7 @@ describe('Nx との接続', () => {
 
   test('A12: init は wrap なしの登録を1つだけにする', () => {
     const ws = createWorkspace('init');
-    const wrapOnly = PLUGINS.filter((entry) => typeof entry !== 'string');
+    const wrapOnly = PLUGINS.filter((entry) => 'wrap' in entry.options);
     writeFileSync(join(ws, 'nx.json'), JSON.stringify({ plugins: wrapOnly }));
     for (let i = 0; i < 2; i++) assert.equal(nx(ws, ['g', 'nx-auto-cache-deps:init']).status, 0);
     const plugins = JSON.parse(readFileSync(join(ws, 'nx.json'), 'utf8')).plugins;
@@ -339,7 +339,7 @@ const createCommandWorkspace = (name: string, script: string) => {
 
 const COMMAND_SCRIPT = `
 const fs = require('node:fs');
-fs.appendFileSync(process.env.CLI_RUN_LOG, (process.argv[2] || 'run') + '\\n');
+fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG, (process.argv[2] || 'run') + '\\n');
 if (fs.existsSync('fail')) { console.error('failed'); process.exit(3); }
 const text = fs.readdirSync('src').sort().map(f => fs.readFileSync('src/' + f, 'utf8')).join('');
 const optional = fs.existsSync('optional.txt') ? fs.readFileSync('optional.txt','utf8') : '';
@@ -351,7 +351,7 @@ console.error('stderr');
 
 const commandCli = () => join(template, 'node_modules/nx-auto-cache-deps/dist/cli.js');
 const commandEnv = (workspace: string, extra: Record<string, string> = {}) => ({
-  ...process.env, CLI_RUN_LOG: join(workspace, '.nx', 'executions'), ...extra,
+  ...process.env, PLAYWRIGHT_RUN_LOG: join(workspace, '.nx', 'executions'), ...extra,
 });
 const commandRun = (workspace: string, args: string[] = [process.execPath, 'command.cjs'], extra: Record<string, string> = {}) =>
   spawnSync(process.execPath, [commandCli(), ...args], { cwd: workspace, env: commandEnv(workspace, extra), timeout: 30000 });
@@ -391,6 +391,7 @@ describe('単独 CLI', () => {
 
   test('引数・環境変数・作業ディレクトリをコマンドの識別に含める', () => {
     const ws = createCommandWorkspace('identity', COMMAND_SCRIPT);
+    writeFileSync(join(ws, 'nx.json'), JSON.stringify({ plugins: [{ plugin: 'nx-auto-cache-deps', options: { env: ['MODE'] } }] }));
     commandSuccess(ws, [process.execPath, 'command.cjs', 'one'], { MODE: 'a' });
     commandSuccess(ws, [process.execPath, 'command.cjs', 'one'], { MODE: 'a' });
     assert.equal(commandCount(ws), 1);
@@ -419,7 +420,7 @@ describe('単独 CLI', () => {
   test('入力をその場で書き換えるコマンドは、実行前の内容で照合する', () => {
     const ws = createCommandWorkspace('in-place', `
       const fs=require('node:fs');
-      fs.appendFileSync(process.env.CLI_RUN_LOG, 'run\\n');
+      fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG, 'run\\n');
       fs.writeFileSync('value.txt', String(Number(fs.readFileSync('value.txt','utf8')) + 1));
     `);
     writeFileSync(join(ws, 'value.txt'), '1');
@@ -454,7 +455,7 @@ describe('単独 CLI', () => {
   test('&& で連結したコマンドを個別にキャッシュし、前半の失敗で後半を止める', () => {
     const ws = createCommandWorkspace('chain', `
       const fs=require('node:fs'), name=process.argv[2];
-      fs.appendFileSync(process.env.CLI_RUN_LOG,name+'\\n');
+      fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG,name+'\\n');
       if(fs.existsSync(name+'.fail')) process.exit(3);
       console.log(fs.readFileSync('src/'+name+'.txt','utf8'));
     `);
@@ -504,7 +505,7 @@ describe('CLI キャッシュの整合性', () => {
   test('既存ディレクトリへの mkdir で、その下の入力を除外しない', () => {
     const ws = createCommandWorkspace('existing-directory', `
       const fs=require('node:fs');
-      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG,'run\\n');
       fs.mkdirSync('src',{recursive:true});
       fs.mkdirSync('dist',{recursive:true});
       fs.writeFileSync('dist/out.txt',fs.readFileSync('src/a.txt'));
@@ -552,7 +553,7 @@ describe('CLI キャッシュの整合性', () => {
   test('追跡されなかった削除を検出した場合はキャッシュしない', () => {
     const ws = createCommandWorkspace('untracked-delete', `
       const fs=require('node:fs');
-      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG,'run\\n');
       fs.unlinkSync('erase.txt');
     `);
     for (const value of ['one','two']) {
@@ -567,7 +568,7 @@ describe('CLI キャッシュの整合性', () => {
   test('symlink と実行権限を成果物として復元する', { skip: process.platform === 'win32' ? 'Windowsのsymlink作成には追加権限が必要' : false }, () => {
     const ws = createCommandWorkspace('output-types', `
       const fs=require('node:fs');
-      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG,'run\\n');
       fs.mkdirSync('dist',{recursive:true});
       fs.writeFileSync('dist/tool','hello');
       fs.chmodSync('dist/tool',0o755);
@@ -596,7 +597,7 @@ describe('CLI の起動と中断', () => {
   test('同じ内容のファイルを指す symlink の変更も入力変更として扱う', { skip: process.platform === 'win32' ? 'Windowsのsymlink作成には追加権限が必要' : false }, () => {
     const ws = createCommandWorkspace('link-input', `
       const fs=require('node:fs');
-      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG,'run\\n');
       console.log(fs.readlinkSync('link'));
     `);
     writeFileSync(join(ws, 'first'), 'same');
@@ -641,5 +642,112 @@ describe('CLI の起動と中断', () => {
       await new Promise(resolvePromise => setTimeout(resolvePromise, 1100));
       assert.equal(existsSync(join(ws, '.nx/late-write')), false, '中断した子が書き込み続けない');
     } finally { if (child.exitCode === null) child.kill('SIGKILL'); }
+  });
+});
+
+const sharedEnvironment = (workspace: string, env: string[] = ['APP_*'], untrackedEnv: string[] = []) => {
+  writeFileSync(join(workspace, 'nx.json'), JSON.stringify({ plugins: [
+    { plugin: 'nx-auto-cache-deps', options: { env, untrackedEnv: ['RUN_LOG', 'PLAYWRIGHT_RUN_LOG', 'TMPDIR', 'NX_*', 'JOB_ID', ...untrackedEnv] } },
+    ...PLUGINS.filter(entry => 'wrap' in entry.options),
+  ] }));
+};
+
+const ENVIRONMENT_COMMAND = `
+const fs=require('node:fs');
+fs.appendFileSync(process.env.PLAYWRIGHT_RUN_LOG,'run\\n');
+fs.mkdirSync('dist',{recursive:true});
+fs.writeFileSync('dist/env.json',JSON.stringify({app:process.env.APP_MODE ?? null,job:process.env.JOB_ID ?? null,dropped:process.env.DROPPED ?? null}));
+`;
+
+describe('共有 env / untrackedEnv', () => {
+  test('CLIはNxのPIDやuntrackedEnvの変更を無視し、envの変更を検出する', () => {
+    const ws = createCommandWorkspace('shared-env-cli', ENVIRONMENT_COMMAND);
+    sharedEnvironment(ws);
+    const first = { APP_MODE: 'one', JOB_ID: 'job-1', NX_INVOCATION_ANCESTOR_PIDS: '1', DROPPED: 'secret' };
+    commandSuccess(ws, undefined, first);
+    assert.deepEqual(JSON.parse(readFileSync(join(ws, 'dist/env.json'), 'utf8')), { app: 'one', job: 'job-1', dropped: null });
+    commandSuccess(ws, undefined, { ...first, JOB_ID: 'job-2', NX_INVOCATION_ANCESTOR_PIDS: '2', DROPPED: 'changed' });
+    assert.equal(commandCount(ws), 1);
+    commandSuccess(ws, undefined, { ...first, APP_MODE: 'two' });
+    assert.equal(commandCount(ws), 2);
+    assert.equal(JSON.parse(readFileSync(join(ws, 'dist/env.json'), 'utf8')).app, 'two');
+    sharedEnvironment(ws, ['APP_*', 'JOB_ID']);
+    commandSuccess(ws, undefined, { ...first, APP_MODE: 'two' });
+    commandSuccess(ws, undefined, { ...first, APP_MODE: 'two', JOB_ID: 'job-3' });
+    assert.equal(commandCount(ws), 4, 'envに明示するとuntrackedの既定・追加より優先');
+  });
+
+  test('Nx executorも同じ設定で環境を選び、Nxのタスクハッシュへ反映する', () => {
+    const ws = createWorkspace('shared-env-nx');
+    sharedEnvironment(ws);
+    writeFileSync(join(ws, 'libs/a/build.mjs'), `
+      import fs from 'node:fs';
+      fs.appendFileSync(process.env.RUN_LOG,'run\\n');
+      fs.mkdirSync('../../dist/a',{recursive:true});
+      fs.writeFileSync('../../dist/a/env.json',JSON.stringify({app:process.env.APP_MODE ?? null,job:process.env.JOB_ID ?? null,dropped:process.env.DROPPED ?? null}));
+    `);
+    const first = { APP_MODE: 'one', JOB_ID: 'job-1', DROPPED: 'secret' };
+    assert.equal(build(ws, 'a:build', runLog(ws), first), true);
+    assert.equal(build(ws, 'a:build', runLog(ws), { ...first, JOB_ID: 'job-2' }), true);
+    assert.deepEqual(JSON.parse(readFileSync(join(ws, 'dist/a/env.json'), 'utf8')), { app: 'one', job: 'job-2', dropped: null });
+    assert.equal(build(ws, 'a:build', runLog(ws), { ...first, JOB_ID: 'job-3', DROPPED: 'changed' }), false);
+    assert.equal(build(ws, 'a:build', runLog(ws), { ...first, APP_MODE: 'two' }), true);
+    assert.equal(JSON.parse(readFileSync(join(ws, 'dist/a/env.json'), 'utf8')).app, 'two');
+    sharedEnvironment(ws, ['APP_*', 'JOB_ID']);
+    assert.equal(build(ws, 'a:build', runLog(ws), first), true);
+    assert.equal(build(ws, 'a:build', runLog(ws), { ...first, JOB_ID: 'job-4' }), true);
+  });
+
+  test('Nxのrun-script経由でCLIを呼んでも、呼出しごとのPIDでミスしない', () => {
+    const ws = createWorkspace('shared-env-run-script');
+    sharedEnvironment(ws);
+    mkdirSync(join(ws, '.nx'), { recursive: true });
+    const log = join(ws, '.nx/cli-executions');
+    writeFiles(ws, {
+      'libs/script/project.json': JSON.stringify({ name: 'script', targets: { check: { cache: false } } }),
+      'libs/script/package.json': JSON.stringify({ name: 'script', private: true, scripts: { check: 'nx-auto-cache-deps node tool.cjs' } }),
+      'libs/script/tool.cjs': ENVIRONMENT_COMMAND,
+    });
+    const runScript = (app: string, job: string) => {
+      const result = nx(ws, ['run', 'script:check'], runLog(ws), { APP_MODE: app, JOB_ID: job, PLAYWRIGHT_RUN_LOG: log });
+      assert.equal(result.status, 0, result.output);
+    };
+    runScript('one', '1');
+    runScript('one', '2');
+    assert.equal(runCount(log), 1);
+    runScript('two', '3');
+    assert.equal(runCount(log), 2);
+  });
+});
+
+describe('Nx の環境読み込みとの接続', () => {
+  test('Nxが.envから読み込む値を、実行とハッシュの両方に使う', () => {
+    const ws = createWorkspace('shared-env-dotenv');
+    sharedEnvironment(ws, ['APP_MODE']);
+    writeFileSync(join(ws, 'libs/a/build.mjs'), `
+      import fs from 'node:fs';
+      fs.appendFileSync(process.env.RUN_LOG,'run\\n');
+      fs.mkdirSync('../../dist/a',{recursive:true});
+      fs.writeFileSync('../../dist/a/env.txt',process.env.APP_MODE ?? 'missing');
+    `);
+    writeFileSync(join(ws, '.env'), 'APP_MODE=one\n');
+    assert.equal(build(ws), true);
+    assert.equal(build(ws), true);
+    assert.equal(build(ws), false);
+    assert.equal(readFileSync(join(ws, 'dist/a/env.txt'), 'utf8'), 'one');
+    writeFileSync(join(ws, '.env'), 'APP_MODE=two\n');
+    assert.equal(build(ws), true);
+    assert.equal(readFileSync(join(ws, 'dist/a/env.txt'), 'utf8'), 'two');
+  });
+
+  test('NX_* を受け渡さない既定の選択でもNx executorを実行できる', () => {
+    const ws = createWorkspace('shared-env-no-nx-internals');
+    writeFileSync(join(ws, 'nx.json'), JSON.stringify({ plugins: [
+      { plugin: 'nx-auto-cache-deps', options: { untrackedEnv: ['RUN_LOG', 'TMPDIR'] } },
+    ] }));
+    assert.equal(build(ws), true);
+    assert.equal(build(ws), true);
+    assert.equal(build(ws), false);
+    assert.equal(readFileSync(join(ws, 'dist/a/out.txt'), 'utf8'), 'one\n');
   });
 });
