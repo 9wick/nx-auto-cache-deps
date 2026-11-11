@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 
 export type Access = { readonly kind: 'read' | 'readDir' | 'write'; readonly path: string };
@@ -94,12 +94,23 @@ export const mergeDependencyLists = (a: DependencyList, b: DependencyList): Depe
 const isMissingError = (error: unknown): boolean =>
   error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 
+// throwIfNoEntry は ENOTDIR を投げる環境もある。親が通常ファイルなら、その下のパスは存在しない。
+const fileStatus = <T>(read: () => T): T | undefined => {
+  try { return read(); }
+  catch (error) {
+    if (isMissingError(error)) return undefined;
+    throw error;
+  }
+};
+
 const pathState = (absolutePath: string): string => {
-  const stats = statSync(absolutePath, { throwIfNoEntry: false });
-  if (stats === undefined) return 'missing';
-  if (stats.isDirectory()) return 'directory';
-  if (stats.isFile()) return `file:${createHash('sha256').update(readFileSync(absolutePath)).digest('hex')}`;
-  return 'other';
+  const entry = fileStatus(() => lstatSync(absolutePath, { throwIfNoEntry: false }));
+  const link = entry?.isSymbolicLink() ? `symlink:${JSON.stringify(readlinkSync(absolutePath))}:` : '';
+  const stats = fileStatus(() => statSync(absolutePath, { throwIfNoEntry: false }));
+  if (stats === undefined) return `${link}missing`;
+  if (stats.isDirectory()) return `${link}directory`;
+  if (stats.isFile()) return `${link}file:${createHash('sha256').update(readFileSync(absolutePath)).digest('hex')}`;
+  return `${link}other`;
 };
 
 const directoryState = (workspaceRoot: string, path: string, outputs: readonly string[]): string => {

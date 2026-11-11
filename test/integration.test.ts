@@ -1,7 +1,7 @@
 // 受け入れ条件 (doc/acceptance.md) を、配布用 tarball を入れた実際の Nx ワークスペースで確かめる。
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, globSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -319,5 +319,327 @@ describe('Nx との接続', () => {
     for (let i = 0; i < 2; i++) assert.equal(nx(ws, ['g', 'nx-auto-cache-deps:init']).status, 0);
     const plugins = JSON.parse(readFileSync(join(ws, 'nx.json'), 'utf8')).plugins;
     assert.deepEqual(plugins, [...wrapOnly, 'nx-auto-cache-deps']);
+  });
+});
+
+// Nx の設定を持たない workspace で、配布物の CLI をそのまま実行する。
+const createCommandWorkspace = (name: string, script: string) => {
+  const directory = join(sandbox, `cli-${name}`);
+  rmSync(directory, { recursive: true, force: true });
+  mkdirSync(join(directory, '.git'), { recursive: true });
+  mkdirSync(join(directory, '.nx'), { recursive: true });
+  writeFiles(directory, {
+    'package.json': JSON.stringify({ name, private: true }),
+    'command.cjs': script,
+    'src/a.txt': 'a\n',
+    'README.md': 'unrelated\n',
+  });
+  return directory;
+};
+
+const COMMAND_SCRIPT = `
+const fs = require('node:fs');
+fs.appendFileSync(process.env.CLI_RUN_LOG, (process.argv[2] || 'run') + '\\n');
+if (fs.existsSync('fail')) { console.error('failed'); process.exit(3); }
+const text = fs.readdirSync('src').sort().map(f => fs.readFileSync('src/' + f, 'utf8')).join('');
+const optional = fs.existsSync('optional.txt') ? fs.readFileSync('optional.txt','utf8') : '';
+fs.mkdirSync('dist', {recursive:true});
+fs.writeFileSync('dist/out.txt', text + optional + (process.env.MODE || ''));
+process.stdout.write(Buffer.from([0, 255, 10]));
+console.error('stderr');
+`;
+
+const commandCli = () => join(template, 'node_modules/nx-auto-cache-deps/dist/cli.js');
+const commandEnv = (workspace: string, extra: Record<string, string> = {}) => ({
+  ...process.env, CLI_RUN_LOG: join(workspace, '.nx', 'executions'), ...extra,
+});
+const commandRun = (workspace: string, args: string[] = [process.execPath, 'command.cjs'], extra: Record<string, string> = {}) =>
+  spawnSync(process.execPath, [commandCli(), ...args], { cwd: workspace, env: commandEnv(workspace, extra), timeout: 30000 });
+const commandCount = (workspace: string) => runCount(join(workspace, '.nx', 'executions'));
+const commandSuccess = (workspace: string, args?: string[], extra?: Record<string, string>) => {
+  const result = commandRun(workspace, args, extra);
+  assert.equal(result.status, 0, result.stderr.toString());
+  return result;
+};
+
+describe('単独 CLI', () => {
+  test('読み取り・列挙・欠落ファイルを入力にし、ログと成果物を2回目から復元する', () => {
+    const ws = createCommandWorkspace('日本語 space', COMMAND_SCRIPT);
+    const first = commandSuccess(ws);
+    const hit = commandSuccess(ws);
+    assert.equal(commandCount(ws), 1);
+    assert.deepEqual(hit.stdout, first.stdout, 'バイナリstdoutを再生');
+    assert.deepEqual(hit.stderr, first.stderr, 'stderrを再生');
+    writeFileSync(join(ws, 'README.md'), 'edited\n');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 1);
+    writeFileSync(join(ws, 'src/a.txt'), 'A\n');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 2);
+    writeFileSync(join(ws, 'src/b.txt'), 'b\n');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 3, '列挙先への追加');
+    writeFileSync(join(ws, 'optional.txt'), 'optional\n');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 4, '欠落パスの出現');
+    rmSync(join(ws, 'dist'), { recursive: true });
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 4);
+    assert.equal(readFileSync(join(ws, 'dist/out.txt'), 'utf8'), 'A\nb\noptional\n');
+    assert.equal(existsSync(join(ws, 'nx.json')), false);
+  });
+
+  test('引数・環境変数・作業ディレクトリをコマンドの識別に含める', () => {
+    const ws = createCommandWorkspace('identity', COMMAND_SCRIPT);
+    commandSuccess(ws, [process.execPath, 'command.cjs', 'one'], { MODE: 'a' });
+    commandSuccess(ws, [process.execPath, 'command.cjs', 'one'], { MODE: 'a' });
+    assert.equal(commandCount(ws), 1);
+    commandSuccess(ws, [process.execPath, 'command.cjs', 'two'], { MODE: 'a' });
+    commandSuccess(ws, [process.execPath, 'command.cjs', 'two'], { MODE: 'b' });
+    assert.equal(commandCount(ws), 3);
+    const sub = join(ws, 'sub');
+    mkdirSync(join(sub, '.nx'), { recursive: true });
+    writeFiles(sub, { 'command.cjs': COMMAND_SCRIPT, 'src/a.txt': 'sub\n' });
+    commandSuccess(sub, [process.execPath, 'command.cjs', 'two'], { MODE: 'b' });
+    assert.equal(commandCount(sub), 1);
+  });
+
+  test('失敗は終了コードを保ち、成功キャッシュや依存一覧を置き換えない', () => {
+    const ws = createCommandWorkspace('failure', COMMAND_SCRIPT);
+    commandSuccess(ws);
+    writeFileSync(join(ws, 'fail'), '');
+    assert.equal(commandRun(ws).status, 3);
+    assert.equal(commandRun(ws).status, 3);
+    assert.equal(commandCount(ws), 3);
+    rmSync(join(ws, 'fail'));
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 3, '元の入力の成功結果を使う');
+  });
+
+  test('入力をその場で書き換えるコマンドは、実行前の内容で照合する', () => {
+    const ws = createCommandWorkspace('in-place', `
+      const fs=require('node:fs');
+      fs.appendFileSync(process.env.CLI_RUN_LOG, 'run\\n');
+      fs.writeFileSync('value.txt', String(Number(fs.readFileSync('value.txt','utf8')) + 1));
+    `);
+    writeFileSync(join(ws, 'value.txt'), '1');
+    commandSuccess(ws);
+    assert.equal(readFileSync(join(ws, 'value.txt'), 'utf8'), '2');
+    commandSuccess(ws);
+    assert.equal(readFileSync(join(ws, 'value.txt'), 'utf8'), '3');
+    writeFileSync(join(ws, 'value.txt'), '2');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 2);
+    assert.equal(readFileSync(join(ws, 'value.txt'), 'utf8'), '3');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 3, '異なる実行前入力はスキップしない');
+    assert.equal(readFileSync(join(ws, 'value.txt'), 'utf8'), '4');
+  });
+
+  test('同じコマンドの同時起動は一度だけ実行し、完成した結果を使う', async () => {
+    const ws = createCommandWorkspace('concurrent', `setTimeout(() => { ${COMMAND_SCRIPT} }, 150);`);
+    const launch = () => new Promise<void>((resolvePromise, reject) => {
+      const child = spawn(process.execPath, [commandCli(), process.execPath, 'command.cjs'], { cwd: ws, env: commandEnv(ws), stdio: 'pipe' });
+      let error = '';
+      child.stderr.on('data', data => { error += data.toString(); });
+      child.stdout.resume();
+      child.once('error', reject);
+      child.once('exit', code => code === 0 ? resolvePromise() : reject(new Error(error)));
+    });
+    await Promise.all([launch(), launch()]);
+    assert.equal(commandCount(ws), 1);
+    assert.equal(readFileSync(join(ws, 'dist/out.txt'), 'utf8'), 'a\n');
+  });
+
+  test('&& で連結したコマンドを個別にキャッシュし、前半の失敗で後半を止める', () => {
+    const ws = createCommandWorkspace('chain', `
+      const fs=require('node:fs'), name=process.argv[2];
+      fs.appendFileSync(process.env.CLI_RUN_LOG,name+'\\n');
+      if(fs.existsSync(name+'.fail')) process.exit(3);
+      console.log(fs.readFileSync('src/'+name+'.txt','utf8'));
+    `);
+    writeFileSync(join(ws, 'src/b.txt'), 'b\n');
+    const quote = (arg: string) => process.platform === 'win32' ? `"${arg}"` : `'${arg.replaceAll("'", "'\\''")}'`;
+    const part = (name: string) => [process.execPath, commandCli(), process.execPath, 'command.cjs', name].map(quote).join(' ');
+    const chain = `${part('a')} && ${part('b')}`;
+    const runChain = () => spawnSync(chain, { cwd: ws, env: commandEnv(ws), shell: true });
+    assert.equal(runChain().status, 0);
+    assert.equal(runChain().status, 0);
+    assert.equal(commandCount(ws), 2);
+    writeFileSync(join(ws, 'src/a.txt'), 'changed\n');
+    assert.equal(runChain().status, 0);
+    assert.equal(commandCount(ws), 3, 'aだけ再実行');
+    writeFileSync(join(ws, 'a.fail'), '');
+    assert.equal(runChain().status, 3);
+    assert.equal(commandCount(ws), 4, 'bへ進まない');
+  });
+
+  test('ローカルのnode_modules/.binからコマンドを解決する', () => {
+    const ws = createCommandWorkspace('local-bin', '');
+    const bin = join(ws, 'node_modules/.bin');
+    mkdirSync(bin, { recursive: true });
+    if (process.platform === 'win32') {
+      writeFileSync(join(bin, 'fixture.cmd'), `@echo off\r\n"${process.execPath}" "%~dp0..\\tool.cjs" %*\r\n`);
+    } else {
+      writeFileSync(join(bin, 'fixture'), `#!/usr/bin/env node\nrequire('../tool.cjs');\n`, { mode: 0o755 });
+    }
+    writeFileSync(join(ws, 'node_modules/tool.cjs'), `console.log(process.argv.slice(2).join('|'));`);
+    const first = commandSuccess(ws, ['fixture', 'space 日本語', 'amp&value']);
+    const hit = commandSuccess(ws, ['fixture', 'space 日本語', 'amp&value']);
+    assert.equal(first.stdout.toString().trim(), 'space 日本語|amp&value');
+    assert.deepEqual(hit.stdout, first.stdout);
+  });
+
+  test('ヘルプと見つからないコマンドを明示する', () => {
+    const ws = createCommandWorkspace('usage', '');
+    assert.match(commandRun(ws, ['--help']).stdout.toString(), /Usage:/);
+    assert.equal(commandRun(ws, []).status, 2);
+    const missing = commandRun(ws, ['nx-auto-cache-deps-command-does-not-exist']);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr.toString(), /Command not found/);
+  });
+});
+
+describe('CLI キャッシュの整合性', () => {
+  test('既存ディレクトリへの mkdir で、その下の入力を除外しない', () => {
+    const ws = createCommandWorkspace('existing-directory', `
+      const fs=require('node:fs');
+      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.mkdirSync('src',{recursive:true});
+      fs.mkdirSync('dist',{recursive:true});
+      fs.writeFileSync('dist/out.txt',fs.readFileSync('src/a.txt'));
+    `);
+    commandSuccess(ws);
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 1);
+    writeFileSync(join(ws, 'src/a.txt'), 'changed\n');
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 2);
+    assert.equal(readFileSync(join(ws, 'dist/out.txt'), 'utf8'), 'changed\n');
+  });
+
+  test('ログが壊れていたら成果物を変更する前にエラーにする', () => {
+    const ws = createCommandWorkspace('corrupt-log', COMMAND_SCRIPT);
+    commandSuccess(ws);
+    const cache = join(ws, '.nx/nx-auto-cache-deps/commands');
+    const logs = globSync('*/entries/*/log', { cwd: cache });
+    assert.equal(logs.length, 1);
+    const log = logs[0];
+    assert.ok(log);
+    writeFileSync(join(cache, log), Buffer.from([0]));
+    writeFileSync(join(ws, 'dist/out.txt'), 'user content');
+    const result = commandRun(ws);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr.toString(), /cached log/);
+    assert.equal(readFileSync(join(ws, 'dist/out.txt'), 'utf8'), 'user content');
+    assert.equal(commandCount(ws), 1);
+  });
+
+  test('成果物が壊れていたら再実行で隠さずエラーにする', () => {
+    const ws = createCommandWorkspace('corrupt-output', COMMAND_SCRIPT);
+    commandSuccess(ws);
+    const cache = join(ws, '.nx/nx-auto-cache-deps/commands');
+    const files = globSync('*/entries/*/files/*', { cwd: cache });
+    const file = files[0];
+    assert.ok(file);
+    writeFileSync(join(cache, file), 'corrupt');
+    const result = commandRun(ws);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr.toString(), /corrupt/);
+    assert.equal(commandCount(ws), 1);
+  });
+
+  test('追跡されなかった削除を検出した場合はキャッシュしない', () => {
+    const ws = createCommandWorkspace('untracked-delete', `
+      const fs=require('node:fs');
+      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.unlinkSync('erase.txt');
+    `);
+    for (const value of ['one','two']) {
+      writeFileSync(join(ws, 'erase.txt'), value);
+      const result = commandSuccess(ws);
+      assert.equal(existsSync(join(ws, 'erase.txt')), false);
+      assert.match(result.stderr.toString(), /untracked filesystem changes/);
+    }
+    assert.equal(commandCount(ws), 2);
+  });
+
+  test('symlink と実行権限を成果物として復元する', { skip: process.platform === 'win32' ? 'Windowsのsymlink作成には追加権限が必要' : false }, () => {
+    const ws = createCommandWorkspace('output-types', `
+      const fs=require('node:fs');
+      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      fs.mkdirSync('dist',{recursive:true});
+      fs.writeFileSync('dist/tool','hello');
+      fs.chmodSync('dist/tool',0o755);
+      fs.symlinkSync('tool','dist/link');
+    `);
+    commandSuccess(ws);
+    rmSync(join(ws, 'dist'), { recursive: true });
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 1);
+    assert.equal(readFileSync(join(ws, 'dist/link'), 'utf8'), 'hello');
+    assert.equal(statSync(join(ws, 'dist/tool')).mode & 0o777, 0o755);
+  });
+});
+
+describe('CLI の起動と中断', () => {
+  test('インストールした bin から起動できる', () => {
+    const ws = createCommandWorkspace('installed-bin', '');
+    const binary = join(template, 'node_modules/.bin', process.platform === 'win32' ? 'nx-auto-cache-deps.cmd' : 'nx-auto-cache-deps');
+    const result = spawnSync(process.platform === 'win32' ? `"${binary}"` : binary, ['--help'], {
+      cwd: ws, env: commandEnv(ws), shell: process.platform === 'win32', encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Usage:/);
+  });
+
+  test('同じ内容のファイルを指す symlink の変更も入力変更として扱う', { skip: process.platform === 'win32' ? 'Windowsのsymlink作成には追加権限が必要' : false }, () => {
+    const ws = createCommandWorkspace('link-input', `
+      const fs=require('node:fs');
+      fs.appendFileSync(process.env.CLI_RUN_LOG,'run\\n');
+      console.log(fs.readlinkSync('link'));
+    `);
+    writeFileSync(join(ws, 'first'), 'same');
+    writeFileSync(join(ws, 'second'), 'same');
+    symlinkSync('first', join(ws, 'link'));
+    commandSuccess(ws);
+    commandSuccess(ws);
+    assert.equal(commandCount(ws), 1);
+    rmSync(join(ws, 'link'));
+    symlinkSync('second', join(ws, 'link'));
+    const result = commandSuccess(ws);
+    assert.equal(commandCount(ws), 2);
+    assert.equal(result.stdout.toString().trim(), 'second');
+  });
+
+  test('SIGTERM で子プロセスを停止し、ロックを解放する', { skip: process.platform === 'win32' ? 'POSIXプロセスグループの中断を検証する' : false }, async () => {
+    const ws = createCommandWorkspace('signal', `
+      const fs=require('node:fs');
+      if(fs.existsSync('.nx/release')) { console.log('finished'); }
+      else {
+        fs.writeFileSync('.nx/started','');
+        setTimeout(() => fs.writeFileSync('.nx/late-write',''), 1000);
+      }
+    `);
+    const child = spawn(process.execPath, [commandCli(), process.execPath, 'command.cjs'], { cwd: ws, env: commandEnv(ws), stdio: 'pipe' });
+    child.stdout.resume();
+    child.stderr.resume();
+    const closed = new Promise<number | null>((resolvePromise, reject) => {
+      child.once('error', reject);
+      child.once('exit', resolvePromise);
+    });
+    try {
+      const deadline = Date.now() + 10000;
+      while (!existsSync(join(ws, '.nx/started'))) {
+        assert.ok(Date.now() < deadline, '子プロセスが起動する');
+        await new Promise(resolvePromise => setTimeout(resolvePromise, 10));
+      }
+      child.kill('SIGTERM');
+      assert.equal(await closed, 143);
+      writeFileSync(join(ws, '.nx/release'), '');
+      commandSuccess(ws);
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 1100));
+      assert.equal(existsSync(join(ws, '.nx/late-write')), false, '中断した子が書き込み続けない');
+    } finally { if (child.exitCode === null) child.kill('SIGKILL'); }
   });
 });
