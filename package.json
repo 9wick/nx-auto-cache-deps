@@ -1,6 +1,6 @@
 {
   "name": "nx-auto-cache-deps",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "File-access based command caching and automatic cache inputs for Nx",
   "license": "MIT",
   "type": "module",
@@ -39,7 +39,8 @@
   },
   "dependencies": {
     "@nx/devkit": "24.0.5",
-    "cross-spawn": "7.0.6"
+    "cross-spawn": "7.0.6",
+    "jsonc-parser": "3.3.1"
   },
   "devDependencies": {
     "@types/cross-spawn": "6.0.6",

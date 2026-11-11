@@ -34,4 +34,14 @@
 | C12 | 成果物の symlink・実行権限 → キャッシュから復元する。POSIX で入力 symlink のリンク先変更も検出する |
 | C13 | POSIX で SIGTERM によって中断 → 子プロセスの書き込みを停止し、次の起動でロックを取得できる |
 
+| E1 | 既定設定 → システム用の変数を受け渡し、独自変数を除く。untracked な値だけの変更では同じ fingerprint |
+| E2 | env の一致・否定パターン → 指定した変数だけを受け渡して値を追跡する。値の欠落と空文字列も区別する |
+| E3 | env と untrackedEnv に両方一致 → env を優先。設定自体の変更も fingerprint に反映する |
+| E4 | JSONC と extends → CLI / Nx runtime / executor で同じ設定を読む。不正・重複設定はエラー |
+| E5 | CLI の Nx PID・JOB_ID 等だけ変更 → ヒット。tracked な値変更 → 再実行 |
+| E6 | Nx executor で同じ設定 → 受渡しとタスクハッシュの両方に反映。未指定変数は渡らない |
+| E7 | Nx run-script から CLI を呼ぶ → Nx の起動ごとの PID で CLI キャッシュを無効にしない |
+| E8 | Nx の .env から tracked な値を読み込む → その値を実行とハッシュの両方に使う |
+| E9 | Windows の変数名の大文字小文字だけを変更 → 同じ意味で受け渡してハッシュする |
+
 Linux x64 (glibc / musl)、Linux arm64 (glibc)、macOS x64/arm64、Windows x64 で同じ条件を検証する。

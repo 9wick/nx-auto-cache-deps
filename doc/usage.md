@@ -18,7 +18,7 @@ npm install --save-dev nx-auto-cache-deps
 ヒット時は stdout / stderr と書き込まれたファイルを復元して成功終了し、失敗時は元の終了コードを返す。
 `&&` の制御は shell が行う。Nx の設定や起動は不要。
 
-CLI はローカルの `node_modules/.bin` を検索する。キャッシュの識別には実行ファイル・引数・作業ディレクトリ・環境変数・ランタイム・プラットフォームを含める。
+CLI はローカルの `node_modules/.bin` を検索する。キャッシュの識別には実行ファイル・引数・作業ディレクトリ・選択した環境変数・ランタイム・プラットフォームを含める。
 環境変数の識別には値のハッシュを使う。
 symlink のリンク先を直接読む操作も検出するため、workspace 内の symlink 一覧とリンク先を追加で照合する。無関係な symlink の変更でもキャッシュが外れる場合がある。
 
@@ -33,6 +33,37 @@ workspace 外のファイル、標準入力、ネットワーク、時刻に依�
 トレーサーに記録されなかった削除などの変更を検出した場合も、警告して結果を保存しない。
 
 以下は Nx プラグインとして使う場合の手順。
+
+## CLI と Nx で共通の環境変数設定
+
+`nx.json` の `plugins[].options` 直下に一度だけ書く。
+
+```json
+{
+  "plugins": [
+    {
+      "plugin": "nx-auto-cache-deps",
+      "options": {
+        "env": ["NODE_ENV", "VITE_*"],
+        "untrackedEnv": ["NX_*"]
+      }
+    }
+  ]
+}
+```
+
+- `env` はコマンドに渡し、値をキーに含める。既定値は空配列。
+- `untrackedEnv` はコマンドに渡すが、値をキーに含めない。Vite Task を基準とした既定リストに追加する。既定には `PATH`、`HOME`、`CI`、`NODE_OPTIONS`、CI / IDE の変数、`*_TOKEN` などがある。
+- どちらにも該当しない ambient な変数は渡さない。色設定が選択されていなければ `FORCE_COLOR=1` を補う。
+- glob と `!` による除外を使える。両方に一致した変数は `env` を優先する。既定で untracked の変数でも、結果を変えるなら `env` に指定する。
+- 設定の変更と tracked な値の変更はキーに反映する。untracked な値だけが変わってもキーは変わらない。
+
+単独 CLI も Nx の起動なしでこのファイルを読む。設定なしなら既定値で実行できる。
+JSONC、末尾カンマ、Nx と同じ浅い `extends` のマージに対応する。
+複数の推論プラグインを wrap する場合も、共通の環境変数設定は一つの登録にまとめる。
+コマンド内の `FOO=bar` や executor 自身の明示的な環境変数設定は、そのコマンド・executor の設定として扱う。
+
+**0.0.7 からの変更:** 従来の CLI は全環境変数を渡し、全ての値をハッシュしていた。今回から選択式になるため、必要な独自変数や `NODE_ENV` を明示する必要がある。旧キャッシュは新しい方針では再利用しない。
 
 ## 導入する
 
@@ -122,19 +153,21 @@ worktree A で実行した後、同じ入力の worktree B で実行すると、
 
 推論プラグインの target では、元の `inputs` にある環境変数・外部依存・runtime input の指定がそのまま残る。
 
-`project.json` で executor を明示する target で環境変数などを加えるときは、`inputs` に named input と一緒に書く。
+共通設定の `env` と設定内容の fingerprint も、この named input に含まれる。`inputs` を明示する場合は named input を含める。追加の runtime / external dependency の指定は Nx 側で行う。
 
 ```json
 {
   "build": {
     "executor": "nx-auto-cache-deps:run",
     "original_executor": "@nx/js:tsc",
-    "inputs": ["autoCacheDeps-build", { "env": "NODE_ENV" }]
+    "inputs": ["autoCacheDeps-build", { "runtime": "node --version" }]
   }
 }
 ```
 
-`inputs` に `autoCacheDeps-<target 名>` を含めないと、依存一覧のハッシュは使われない。
+`inputs` に `autoCacheDeps-<target 名>` を含めないと、依存一覧と共通環境変数の fingerprint は使われない。Nx の `{ "env": "NAME" }` は追加のハッシュ条件として残るが、受渡し変数の選択には共通の `env` / `untrackedEnv` を使う。
+
+通常の Nx script から CLI を呼ぶ場合も CLI はこの設定を使う。プラグインの executor に差し替えていない外側の Nx タスクは、独自の Nx キャッシュ設定を持つ。
 
 ## 解除する
 

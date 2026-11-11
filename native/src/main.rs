@@ -51,9 +51,16 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let volume_root = workspace_root.ancestors().last().ok_or("missing volume root")?;
     let program = args.next().ok_or("missing program")?;
     let mut command = fspy::Command::new(program);
+    // fspy 自身の初期化環境と、追跡するコマンドへ渡す環境を分ける。
+    let command_env = match env::var("NX_AUTO_CACHE_DEPS_COMMAND_ENV_FILE") {
+        Ok(path) => serde_json::from_str::<std::collections::BTreeMap<String, String>>(&fs::read_to_string(path)?)?
+            .into_iter().map(|(key, value)| (key.into(), value.into())).collect(),
+        Err(env::VarError::NotPresent) => env::vars_os().collect::<Vec<_>>(),
+        Err(error) => return Err(error.into()),
+    };
     command
         .args(args)
-        .envs(env::vars_os())
+        .envs(command_env)
         .current_dir(env::current_dir()?)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())

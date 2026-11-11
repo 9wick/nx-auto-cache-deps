@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFileSync, writeSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { constants } from 'node:os';
 import { pipeline } from 'node:stream/promises';
 import { Writable } from 'node:stream';
@@ -44,9 +44,12 @@ export const runTraced = async (args: {
   readonly env?: NodeJS.ProcessEnv;
   readonly log?: number;
 }): Promise<number> => {
-  const child = spawn(resolveTraceBinary(), [args.report, args.root, ...args.command], {
+  const binary = resolveTraceBinary();
+  const environmentFile = args.env === undefined ? undefined : `${args.report}.environment.json`;
+  if (environmentFile !== undefined) writeFileSync(environmentFile, JSON.stringify(args.env), { mode: 0o600 });
+  const child = spawn(binary, [args.report, args.root, ...args.command], {
     cwd: args.cwd,
-    ...(args.env === undefined ? {} : { env: args.env }),
+    ...(environmentFile === undefined ? {} : { env: { ...process.env, NX_AUTO_CACHE_DEPS_COMMAND_ENV_FILE: environmentFile } }),
     stdio: args.log === undefined ? 'inherit' : ['inherit', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
@@ -91,6 +94,7 @@ export const runTraced = async (args: {
   } finally {
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', terminate);
+    if (environmentFile !== undefined) rmSync(environmentFile, { force: true });
   }
 };
 

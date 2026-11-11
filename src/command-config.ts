@@ -4,7 +4,7 @@ import { delimiter, dirname, extname, isAbsolute, join, parse, resolve } from 'n
 export const findWorkspaceRoot = (cwd: string): string => {
   let packageRoot: string | undefined;
   for (let directory = cwd; ; directory = dirname(directory)) {
-    if (existsSync(join(directory, '.git')) || existsSync(join(directory, 'pnpm-workspace.yaml')) || existsSync(join(directory, 'pnpm-workspace.yml'))) return directory;
+    if (existsSync(join(directory, 'nx.json')) || existsSync(join(directory, '.git')) || existsSync(join(directory, 'pnpm-workspace.yaml')) || existsSync(join(directory, 'pnpm-workspace.yml'))) return directory;
     const packageJson = join(directory, 'package.json');
     if (existsSync(packageJson)) {
       packageRoot ??= directory;

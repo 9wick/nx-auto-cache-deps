@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs';
 import { findWorkspaceRoot, commandEnvironment, resolveCommand } from './command-config.js';
+import { selectEnvironment } from './environment.js';
+import { readEnvironmentOptions } from './environment-config.js';
 import { runCachedCommand } from './command-cache.js';
 
 const main = async (): Promise<number> => {
@@ -17,13 +19,14 @@ const main = async (): Promise<number> => {
   }
   const cwd = realpathSync(process.cwd());
   const root = findWorkspaceRoot(cwd);
-  const env = commandEnvironment(cwd, root);
+  const selection = selectEnvironment(commandEnvironment(cwd, root), readEnvironmentOptions(root));
+  const env = selection.values;
   const resolved = resolveCommand(executable, cwd, env);
   if (resolved.status === 'missing') {
     process.stderr.write(`nx-auto-cache-deps: Command not found: ${resolved.command}\n`);
     return 1;
   }
-  return runCachedCommand({ root, cwd, executable: resolved.path, args, env });
+  return runCachedCommand({ root, cwd, executable: resolved.path, args, env, environmentFingerprint: selection.fingerprint });
 };
 
 try { process.exitCode = await main(); }
