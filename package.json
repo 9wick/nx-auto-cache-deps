@@ -1,10 +1,13 @@
 {
   "name": "nx-auto-cache-deps",
   "version": "0.0.6",
-  "description": "Nx plugin that derives cache inputs from the files a task actually accessed",
+  "description": "File-access based command caching and automatic cache inputs for Nx",
   "license": "MIT",
   "type": "module",
   "main": "./dist/plugin.js",
+  "bin": {
+    "nx-auto-cache-deps": "./dist/cli.js"
+  },
   "exports": {
     ".": "./dist/plugin.js",
     "./package.json": "./package.json"
@@ -29,10 +32,17 @@
   "peerDependencies": {
     "nx": ">=24.0.0 <25"
   },
+  "peerDependenciesMeta": {
+    "nx": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@nx/devkit": "24.0.5"
+    "@nx/devkit": "24.0.5",
+    "cross-spawn": "7.0.6"
   },
   "devDependencies": {
+    "@types/cross-spawn": "6.0.6",
     "@types/node": "24.19.2",
     "nx": "24.0.5",
     "typescript": "7.0.2"

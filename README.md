@@ -1,14 +1,42 @@
 # nx-auto-cache-deps
 
-Automatic file inputs for Nx task caching.
+File-access based command caching, and automatic file inputs for Nx task caching.
 
 Instead of maintaining file globs in `inputs`, let each task discover its inputs as it runs. `nx-auto-cache-deps` traces file access across the task and its child processes using [fspy](https://github.com/voidzero-dev/vite-task). Changing a file the task read invalidates its cache; editing an unrelated file does not.
 
 Nx continues to store and restore the task's outputs and logs.
 
-Requires **Nx 24** and **Node.js 24 or later**.
+Requires **Node.js 24 or later**. The Nx plugin supports **Nx 24**.
 
-## Get started
+## Cache individual commands
+
+```sh
+npm install --save-dev nx-auto-cache-deps
+```
+
+Prefix the commands in a package.json script:
+
+```json
+{
+  "scripts": {
+    "check": "nx-auto-cache-deps eslint . && nx-auto-cache-deps prettier ."
+  }
+}
+```
+
+Run it with `npm run check`. From a terminal, use `npx nx-auto-cache-deps eslint .`.
+
+Each command has its own cache. A successful cache hit replays stdout and stderr, restores the files the command wrote, and exits with status 0. The shell handles `&&`, including stopping when a command fails. This works without an Nx workspace or configuration.
+
+The CLI resolves local `node_modules/.bin` commands. It identifies commands by their executable, arguments, working directory, environment, runtime and platform. Environment values are hashed in the cache key. File reads, directory listings and missing-file probes inside the workspace determine when to rerun. Files written by a successful command are saved automatically. Workspace symlink targets are conservatively checked as well, so changing an unrelated symlink can invalidate a cached command.
+
+The workspace root is the nearest Git/workspace root, falling back to the nearest package.json or the current directory. The cache lives in `<workspace>/.nx/nx-auto-cache-deps/commands`; delete this directory to clear it. `.git` and `.nx` are excluded from tracking.
+
+Use caching for commands whose results depend on workspace files, arguments and environment variables. Reads and writes outside the workspace, stdin, network responses and time are not cache inputs. Interactive commands should be run directly. Commands that read and overwrite an existing input may need an extra execution to learn its pre-execution dependencies. Failed or incompletely traced executions are not cached. If a workspace change, such as a deletion, was not reported by the tracer, the CLI warns and leaves that result uncached. A corrupt cache is reported as an error.
+
+The CLI and the Nx plugin use the same tracer and dependency fingerprinting. The CLI owns its command cache; the Nx plugin uses Nx to store and restore task results.
+
+## Use with Nx
 
 ```sh
 nx add nx-auto-cache-deps

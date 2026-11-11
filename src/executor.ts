@@ -1,21 +1,13 @@
 import { cacheDir, getOutputsForTargetAndConfiguration, logger, type ExecutorContext } from '@nx/devkit';
-import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mergeDependencyLists, toDependencyList, toOutputPaths, type TraceReport } from './dependencies.js';
-import { resolveTraceBinary } from './platform.js';
+import { mergeDependencyLists, toDependencyList, toOutputPaths } from './dependencies.js';
+import { readTraceReport, runTraced } from './trace.js';
 import type { OriginalExecution } from './run-original.js';
 import { dependencyListPath, readDependencyList, storeDirectory, taskKey, writeDependencyList } from './store.js';
 
 const runOriginalScript = fileURLToPath(new URL('./run-original.js', import.meta.url));
-
-const runTraced = (args: readonly string[], cwd: string): Promise<number> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(resolveTraceBinary(), args, { cwd, stdio: 'inherit' });
-    child.once('error', reject);
-    child.once('exit', (code) => resolve(code ?? 1));
-  });
 
 export default async function run(options: Record<string, unknown>, context: ExecutorContext): Promise<{ success: boolean }> {
   const { projectName, targetName } = context;
@@ -35,8 +27,8 @@ export default async function run(options: Record<string, unknown>, context: Exe
     const execution: OriginalExecution = { executor: target.original_executor, options, context };
     writeFileSync(payload, JSON.stringify(execution));
 
-    const code = await runTraced([reportPath, context.root, process.execPath, runOriginalScript, payload], process.cwd());
-    const report = JSON.parse(readFileSync(reportPath, 'utf8')) as TraceReport;
+    const code = await runTraced({ report: reportPath, root: context.root, command: [process.execPath, runOriginalScript, payload], cwd: process.cwd() });
+    const report = readTraceReport(reportPath);
     if (report.status === 'incomplete') {
       logger.warn(`nx-auto-cache-deps: tracing of ${projectName}:${targetName} was incomplete, dependency list not updated: ${report.reason}`);
     } else if (code === 0) {

@@ -11,17 +11,20 @@ export const storeDirectory = (cacheDirectory: string): string => join(cacheDire
 export const dependencyListPath = (cacheDirectory: string, key: string): string =>
   join(storeDirectory(cacheDirectory), 'dependencies', `${encodeURIComponent(key)}.json`);
 
-const isDependencyList = (value: unknown): value is DependencyList =>
+export const isDependencyList = (value: unknown): value is DependencyList =>
   typeof value === 'object' &&
   value !== null &&
   'version' in value &&
   value.version === 2 &&
   'paths' in value &&
   Array.isArray(value.paths) &&
+  value.paths.every((path: unknown) => typeof path === 'string') &&
   'directories' in value &&
   Array.isArray(value.directories) &&
+  value.directories.every((path: unknown) => typeof path === 'string') &&
   'outputs' in value &&
-  Array.isArray(value.outputs);
+  Array.isArray(value.outputs) &&
+  value.outputs.every((path: unknown) => typeof path === 'string');
 
 export type StoredList =
   | { readonly status: 'found'; readonly list: DependencyList }
@@ -46,8 +49,12 @@ export const readDependencyList = (path: string): StoredList => {
 
 /** 別プロセスが書きかけの一覧を読まないよう、一時ファイルから rename で置き換える。 */
 export const writeDependencyList = (path: string, list: DependencyList): void => {
+  writeJsonAtomic(path, list);
+};
+
+export const writeJsonAtomic = (path: string, value: unknown): void => {
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(list));
+  writeFileSync(temporary, JSON.stringify(value));
   renameSync(temporary, path);
 };

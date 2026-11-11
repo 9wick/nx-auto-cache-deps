@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 
 export type Access = { readonly kind: 'read' | 'readDir' | 'write'; readonly path: string };
@@ -95,11 +95,13 @@ const isMissingError = (error: unknown): boolean =>
   error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 
 const pathState = (absolutePath: string): string => {
+  const entry = lstatSync(absolutePath, { throwIfNoEntry: false });
+  const link = entry?.isSymbolicLink() ? `symlink:${JSON.stringify(readlinkSync(absolutePath))}:` : '';
   const stats = statSync(absolutePath, { throwIfNoEntry: false });
-  if (stats === undefined) return 'missing';
-  if (stats.isDirectory()) return 'directory';
-  if (stats.isFile()) return `file:${createHash('sha256').update(readFileSync(absolutePath)).digest('hex')}`;
-  return 'other';
+  if (stats === undefined) return `${link}missing`;
+  if (stats.isDirectory()) return `${link}directory`;
+  if (stats.isFile()) return `${link}file:${createHash('sha256').update(readFileSync(absolutePath)).digest('hex')}`;
+  return `${link}other`;
 };
 
 const directoryState = (workspaceRoot: string, path: string, outputs: readonly string[]): string => {

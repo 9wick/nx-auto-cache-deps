@@ -2,7 +2,7 @@
 //! program を fspy の監視下で実行し、アクセス記録を report.json に書き、program の終了コードで終わる。
 
 use serde::Serialize;
-use std::{env, fs, path::PathBuf, process::{ExitCode, Stdio}};
+use std::{env, fs, io::{self, Write}, path::PathBuf, process::{ExitCode, Stdio}};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +31,19 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let mut args = env::args_os().skip(1);
-    let report_path = PathBuf::from(args.next().ok_or("missing report path")?);
+    let first = args.next().ok_or("missing report path")?;
+    if first == "--lock" {
+        let path = PathBuf::from(args.next().ok_or("missing lock path")?);
+        if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+        let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
+        file.lock()?;
+        io::stdout().write_all(b"locked\n")?;
+        io::stdout().flush()?;
+        // 呼び出し元の終了・クラッシュでも stdin が閉じ、OSのロックが解放される。
+        io::copy(&mut io::stdin(), &mut io::sink())?;
+        return Ok(0);
+    }
+    let report_path = PathBuf::from(first);
     let workspace_root = PathBuf::from(args.next().ok_or("missing workspace root")?);
     if !workspace_root.is_absolute() {
         return Err("workspace root is not absolute".into());
@@ -70,6 +82,9 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
                     let Some(path) = absolute.to_str() else {
                         return Err("non-UTF-8 path".into());
                     };
+                    if matches!(access, fspy::PathAccess::ReadWrite(_)) {
+                        list.push(Access { kind: "read", path: path.to_owned() });
+                    }
                     list.push(Access { kind, path: path.to_owned() });
                 }
             }
